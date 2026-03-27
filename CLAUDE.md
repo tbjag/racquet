@@ -87,7 +87,7 @@ During development, Vite proxies `/api` and `/ws` requests to Axum so you don't 
 
 ## Implementation Phases
 
-### Phase 1 — Server Foundation
+### Phase 1 — Server Foundation ✅
 - Axum server setup, `/api` REST routes, `/ws` WebSocket endpoint
 - User registration and login with JWT
 - SQLite schema: `users`, `rooms`, `messages`
