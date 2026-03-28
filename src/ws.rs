@@ -25,6 +25,7 @@ pub async fn ws_handler(
         .ok_or_else(|| AppError::Unauthorized("missing token".to_string()))?;
 
     let claims = auth::verify_token(&token, &state.jwt_secret)?;
+    tracing::info!(user_id = %claims.sub, username = %claims.username, "websocket upgrading");
 
     Ok(ws.on_upgrade(move |socket| handle_socket(socket, state, claims)))
 }
@@ -35,6 +36,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, claims: auth::Claims)
 
     let user_id = claims.sub;
     let username = claims.username;
+    tracing::info!(user_id = %user_id, username = %username, "websocket connected");
 
     // Write task: forward messages from channel to WebSocket
     let write_task = tokio::spawn(async move {
@@ -51,12 +53,16 @@ async fn handle_socket(socket: WebSocket, state: AppState, claims: auth::Claims)
             Message::Text(text) => {
                 handle_text_message(&text, &user_id, &username, &state, &tx).await;
             }
-            Message::Close(_) => break,
+            Message::Close(_) => {
+                tracing::debug!(user_id = %user_id, "received close frame");
+                break;
+            }
             _ => {}
         }
     }
 
     // Cleanup: disconnect user from all rooms
+    tracing::info!(user_id = %user_id, username = %username, "websocket disconnected");
     state.cm.disconnect(&user_id).await;
 
     // Abort the write task
@@ -73,6 +79,7 @@ async fn handle_text_message(
     let parsed: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(_) => {
+            tracing::debug!("received invalid JSON from client");
             let _ = sender.send(Message::Text(
                 serde_json::json!({ "type": "error", "message": "invalid JSON" })
                     .to_string()
@@ -83,6 +90,7 @@ async fn handle_text_message(
     };
 
     let msg_type = parsed["type"].as_str().unwrap_or("");
+    tracing::debug!(msg_type = %msg_type, user_id = %user_id, "received ws message");
 
     match msg_type {
         "join_room" => {
@@ -112,6 +120,7 @@ async fn handle_text_message(
 
             // Persist to database
             if let Err(e) = models::insert_message(&state.db, &msg_id, room_id, user_id, content).await {
+                tracing::error!(error = %e, room_id = %room_id, user_id = %user_id, "failed to persist message");
                 let _ = sender.send(Message::Text(
                     serde_json::json!({ "type": "error", "message": e.to_string() })
                         .to_string()
@@ -139,6 +148,7 @@ async fn handle_text_message(
                 .await;
         }
         _ => {
+            tracing::debug!(msg_type = %msg_type, "unknown message type received");
             let _ = sender.send(Message::Text(
                 serde_json::json!({ "type": "error", "message": format!("unknown message type: {msg_type}") })
                     .to_string()

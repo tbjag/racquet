@@ -81,14 +81,20 @@ impl axum::extract::FromRequestParts<crate::AppState> for AuthUser {
         let jwt_secret = state.jwt_secret.clone();
 
         async move {
-            let header = auth_header
-                .ok_or_else(|| AppError::Unauthorized("missing authorization header".to_string()))?;
+            let header = auth_header.ok_or_else(|| {
+                tracing::debug!("request missing authorization header");
+                AppError::Unauthorized("missing authorization header".to_string())
+            })?;
 
-            let token = header
-                .strip_prefix("Bearer ")
-                .ok_or_else(|| AppError::Unauthorized("invalid authorization header format".to_string()))?;
+            let token = header.strip_prefix("Bearer ").ok_or_else(|| {
+                tracing::debug!("invalid authorization header format");
+                AppError::Unauthorized("invalid authorization header format".to_string())
+            })?;
 
-            let claims = verify_token(token, &jwt_secret)?;
+            let claims = verify_token(token, &jwt_secret).map_err(|e| {
+                tracing::warn!("token verification failed");
+                e
+            })?;
 
             Ok(AuthUser {
                 user_id: claims.sub,

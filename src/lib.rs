@@ -19,6 +19,7 @@ pub struct AppState {
 
 pub fn build_router(state: AppState) -> axum::Router {
     use axum::routing::{get, post};
+    use tower_http::trace::TraceLayer;
 
     axum::Router::new()
         .route("/api/register", post(routes::register))
@@ -26,5 +27,6 @@ pub fn build_router(state: AppState) -> axum::Router {
         .route("/api/rooms", get(routes::list_rooms).post(routes::create_room))
         .route("/api/rooms/{room_id}/messages", get(routes::get_messages))
         .route("/ws", get(ws::ws_handler))
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }

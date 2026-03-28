@@ -19,6 +19,11 @@ impl IntoResponse for AppError {
             AppError::Conflict(m) => (StatusCode::CONFLICT, m),
             AppError::Internal(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
         };
+        if status.is_server_error() {
+            tracing::error!(status = %status, error = %message, "request failed");
+        } else {
+            tracing::debug!(status = %status, error = %message, "request error");
+        }
         (status, axum::Json(serde_json::json!({ "error": message }))).into_response()
     }
 }

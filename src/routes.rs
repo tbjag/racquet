@@ -38,6 +38,7 @@ pub async fn register(
     let password_hash = auth::hash_password(&req.password)?;
 
     models::insert_user(&state.db, &id, &req.username, &password_hash).await?;
+    tracing::info!(user_id = %id, username = %req.username, "user registered");
 
     Ok((
         StatusCode::CREATED,
@@ -60,14 +61,19 @@ pub async fn login(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let user = models::find_user_by_username(&state.db, &req.username)
         .await?
-        .ok_or_else(|| AppError::Unauthorized("invalid credentials".to_string()))?;
+        .ok_or_else(|| {
+            tracing::warn!(username = %req.username, "login failed: unknown username");
+            AppError::Unauthorized("invalid credentials".to_string())
+        })?;
 
     let valid = auth::verify_password(&req.password, &user.password_hash)?;
     if !valid {
+        tracing::warn!(username = %req.username, "login failed: invalid password");
         return Err(AppError::Unauthorized("invalid credentials".to_string()));
     }
 
     let token = auth::create_token(&user.id, &user.username, &state.jwt_secret)?;
+    tracing::info!(user_id = %user.id, username = %user.username, "user logged in");
 
     Ok(Json(serde_json::json!({ "token": token })))
 }
@@ -77,6 +83,7 @@ pub async fn list_rooms(
     _user: AuthUser,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let rooms = models::list_rooms(&state.db).await?;
+    tracing::debug!(count = rooms.len(), "rooms listed");
     Ok(Json(serde_json::json!(rooms)))
 }
 
@@ -98,6 +105,7 @@ pub async fn create_room(
 
     let id = uuid::Uuid::new_v4().to_string();
     models::insert_room(&state.db, &id, &req.name, &user.user_id).await?;
+    tracing::info!(room_id = %id, room_name = %req.name, created_by = %user.user_id, "room created");
 
     let room = models::find_room_by_id(&state.db, &id)
         .await?
@@ -134,6 +142,7 @@ pub async fn get_messages(
         limit,
     )
     .await?;
+    tracing::debug!(room_id = %room_id, count = messages.len(), limit, "messages fetched");
 
     Ok(Json(serde_json::json!(messages)))
 }

@@ -49,6 +49,7 @@ impl ConnectionManager {
                 sender,
             },
         );
+        tracing::info!(room_id = %room_id, user_id = %user_id, username = %username, "user joined room");
     }
 
     pub async fn leave_room(&self, room_id: &str, user_id: &str) {
@@ -64,6 +65,9 @@ impl ConnectionManager {
         };
 
         // Notify remaining users
+        if let Some(ref username) = username {
+            tracing::info!(room_id = %room_id, user_id = %user_id, username = %username, "user left room");
+        }
         if let Some(username) = username {
             if let Some(room) = rooms.get(room_id) {
                 let notification = serde_json::json!({
@@ -87,6 +91,8 @@ impl ConnectionManager {
             .filter(|(_, users)| users.contains_key(user_id))
             .map(|(room_id, _)| room_id.clone())
             .collect();
+
+        tracing::info!(user_id = %user_id, room_count = room_ids.len(), "disconnecting user from all rooms");
 
         for room_id in &room_ids {
             let username = if let Some(room) = rooms.get_mut(room_id) {
@@ -115,6 +121,7 @@ impl ConnectionManager {
     pub async fn broadcast_to_room(&self, room_id: &str, message: &str) {
         let rooms = self.rooms.read().await;
         if let Some(room) = rooms.get(room_id) {
+            tracing::debug!(room_id = %room_id, recipients = room.len(), "broadcasting to room");
             let msg = axum::extract::ws::Message::Text(message.to_string().into());
             for user in room.values() {
                 let _ = user.sender.send(msg.clone());
