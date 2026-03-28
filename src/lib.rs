@@ -19,7 +19,13 @@ pub struct AppState {
 
 pub fn build_router(state: AppState) -> axum::Router {
     use axum::routing::{get, post};
+    use tower_http::cors::{Any, CorsLayer};
     use tower_http::trace::TraceLayer;
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     axum::Router::new()
         .route("/api/register", post(routes::register))
@@ -28,5 +34,6 @@ pub fn build_router(state: AppState) -> axum::Router {
         .route("/api/rooms/{room_id}/messages", get(routes::get_messages))
         .route("/ws", get(ws::ws_handler))
         .layer(TraceLayer::new_for_http())
+        .layer(cors)
         .with_state(state)
 }

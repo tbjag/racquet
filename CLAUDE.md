@@ -47,8 +47,9 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only pas
 | WebSockets | `tokio-tungstenite` |
 | Database | `sqlx` + SQLite |
 | Auth | `jsonwebtoken` (JWT) |
-| Frontend framework | Svelte + TypeScript |
-| Frontend build tool | Vite |
+| Frontend framework | SvelteKit 2 + Svelte 5 (runes mode) + TypeScript |
+| Frontend build tool | Vite 7 |
+| Integration tests | Playwright (Chromium) |
 | Audio / Video | Browser WebRTC API (no Rust dependency) |
 | STUN (local dev) | Google's free public STUN server |
 
@@ -56,8 +57,9 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only pas
 
 - **OS**: Windows with WSL2 (Ubuntu)
 - **Code editing and compilation**: inside WSL
-- **Testing**: Windows browser (Chrome or Edge) at `http://localhost:3000`
-- **State**: Phase 1 complete — backend server with auth, rooms, messages, and WebSocket hub is fully implemented and tested
+- **Testing**: Windows browser (Chrome or Edge) at `http://localhost:5173` (Vite dev server)
+- **Integration tests**: Playwright (Chromium headless) — runs against real backend + frontend
+- **State**: Phase 2 complete — backend server + Svelte frontend with auth, rooms, and real-time chat
 
 WSL2 and Windows share `localhost`, so any port Axum binds to in WSL is immediately accessible from the Windows browser with no extra config.
 
@@ -72,12 +74,25 @@ WSL2 and Windows share `localhost`, so any port Axum binds to in WSL is immediat
 
 ### Day-to-day dev workflow
 
-1. In WSL terminal 1: `cargo watch -x run` — auto-restarts Axum on Rust file changes
-2. In WSL terminal 2: `npm run dev` inside the frontend folder — Vite hot-reloads on JS/TS/Svelte changes
-3. Open `http://localhost:3000` in Windows browser
+1. In WSL terminal 1: `cargo run` (or `cargo watch -x run`) — starts Axum on port 3000
+2. In WSL terminal 2: `cd frontend && npm run dev` — Vite dev server on port 5173
+3. Open `http://localhost:5173` in Windows browser
 4. For multi-user testing: use Chrome + Edge simultaneously, logged in as different users
 
-During development, Vite proxies `/api` and `/ws` requests to Axum so you don't deal with CORS. In production, Axum serves the compiled `/dist` output from `npm run build` directly as static files.
+The frontend calls the backend directly at `localhost:3000` (configured in `frontend/src/lib/api.ts` and `frontend/src/lib/ws.ts`). CORS is enabled on the backend via `tower-http`. In production, Axum serves the compiled `/dist` output from `npm run build` directly as static files.
+
+### Running integration tests
+
+```bash
+cd frontend && npx playwright test
+```
+
+Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via `webServer` config. Tests use a separate SQLite DB at `/tmp/racquet-e2e.db`. If servers are already running, they are reused.
+
+- 18 tests across 3 files: `auth.spec.ts`, `rooms.spec.ts`, `chat.spec.ts`
+- Tests use random usernames/room names so they don't depend on a clean DB
+- For headed mode (see the browser): `npx playwright test --headed`
+- For the interactive UI: `npx playwright test --ui`
 
 ### Audio/video testing locally
 
@@ -93,10 +108,13 @@ During development, Vite proxies `/api` and `/ws` requests to Axum so you don't 
 - SQLite schema: `users`, `rooms`, `messages`
 - WebSocket connection manager (track connected users per room)
 
-### Phase 2 — Chat
-- Real-time message broadcast via WebSocket to all users in a room (server-side already implemented in Phase 1)
-- REST endpoint to fetch message history on join (server-side already implemented in Phase 1)
-- Frontend: room list, message input, scrollable chat history (not yet started — no frontend code exists in repo)
+### Phase 2 — Chat ✅
+- SvelteKit frontend (`frontend/`) with SSR disabled (client-side SPA)
+- Login/register pages with JWT token stored in localStorage
+- Room list sidebar with create-room form
+- Real-time chat via WebSocket (messages broadcast to all users in a room)
+- Message history loaded via REST on room join
+- 18 Playwright integration tests covering auth, rooms, and chat (including two-user real-time test)
 
 ### Phase 3 — WebRTC Signaling
 - Add signaling message types to the WebSocket protocol: `offer`, `answer`, `ice-candidate`
