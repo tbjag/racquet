@@ -57,7 +57,7 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only pas
 - **OS**: Windows with WSL2 (Ubuntu)
 - **Code editing and compilation**: inside WSL
 - **Testing**: Windows browser (Chrome or Edge) at `http://localhost:3000`
-- **State**: `cargo new` has been run, git repo initialized
+- **State**: Phase 1 complete — backend server with auth, rooms, messages, and WebSocket hub is fully implemented and tested
 
 WSL2 and Windows share `localhost`, so any port Axum binds to in WSL is immediately accessible from the Windows browser with no extra config.
 
@@ -87,16 +87,16 @@ During development, Vite proxies `/api` and `/ws` requests to Axum so you don't 
 
 ## Implementation Phases
 
-### Phase 1 — Server Foundation
+### Phase 1 — Server Foundation ✅
 - Axum server setup, `/api` REST routes, `/ws` WebSocket endpoint
 - User registration and login with JWT
 - SQLite schema: `users`, `rooms`, `messages`
 - WebSocket connection manager (track connected users per room)
 
 ### Phase 2 — Chat
-- Real-time message broadcast via WebSocket to all users in a room
-- REST endpoint to fetch message history on join
-- Frontend: room list, message input, scrollable chat history
+- Real-time message broadcast via WebSocket to all users in a room (server-side already implemented in Phase 1)
+- REST endpoint to fetch message history on join (server-side already implemented in Phase 1)
+- Frontend: room list, message input, scrollable chat history (not yet started — no frontend code exists in repo)
 
 ### Phase 3 — WebRTC Signaling
 - Add signaling message types to the WebSocket protocol: `offer`, `answer`, `ice-candidate`
