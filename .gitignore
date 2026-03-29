@@ -3,3 +3,10 @@ racquet.db
 racquet.db-shm
 racquet.db-wal
 
+# Frontend
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build
+frontend/test-results
+frontend/playwright-report
+

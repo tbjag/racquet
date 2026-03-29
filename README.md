@@ -32,7 +32,8 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only rel
 | WebSockets | tokio-tungstenite |
 | Database | SQLite (sqlx) |
 | Auth | JWT (jsonwebtoken) + Argon2 password hashing |
-| Frontend | Svelte + TypeScript (Vite) |
+| Frontend | SvelteKit 2 + Svelte 5 + TypeScript (Vite 7) |
+| Integration tests | Playwright (Chromium) |
 | Audio/Video | Browser WebRTC API (no Rust dependency) |
 
 ## Getting Started
@@ -40,6 +41,7 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only rel
 ### Prerequisites
 
 - [Rust](https://rustup.rs/) (stable toolchain)
+- [Node.js](https://nodejs.org/) (for the frontend)
 - SQLite is handled automatically via sqlx -- no manual install needed
 
 ### Environment Variables
@@ -50,47 +52,52 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only rel
 | `JWT_SECRET` | `racquet-dev-secret-do-not-use-in-prod` | Secret for signing JWTs |
 | `PORT` | `3000` | Server port |
 
-### Running the Server
+### Running the App
 
 ```bash
-# Build and run (database is created and migrated automatically)
+# Terminal 1: Start the backend (port 3000)
 cargo run
 
-# With custom config
-DATABASE_URL="sqlite:my.db?mode=rwc" JWT_SECRET="my-secret" PORT=8080 cargo run
-
-# Auto-restart on file changes (requires cargo-watch)
-cargo watch -x run
+# Terminal 2: Start the frontend (port 5173)
+cd frontend && npm install && npm run dev
 ```
 
-The server will be available at `http://localhost:3000`.
+Open `http://localhost:5173` in your browser. Register an account, create a room, and start chatting.
+
+For multi-user testing, open a second browser (e.g. Chrome + Edge), register a second user, and join the same room. Messages appear in real time.
 
 ### Running Tests
 
+**Backend tests (29 total: 10 unit + 19 integration):**
+
 ```bash
-# Run all tests (unit + integration)
 cargo test
-
-# Run with output visible
-cargo test -- --nocapture
-
-# Integration tests only (run single-threaded to avoid port conflicts)
-cargo test --test integration -- --test-threads=1
-
-# A specific test
-cargo test test_register_success -- --nocapture
 ```
 
-**Test coverage:**
-- 9 unit tests (password hashing, JWT lifecycle, connection manager)
-- 19 integration tests (auth, rooms, messages, WebSocket)
+Each backend integration test spawns an isolated server with its own temp database.
+
+**Frontend integration tests (18 Playwright tests):**
+
+```bash
+cd frontend && npx playwright test
+```
+
+Playwright auto-starts both the backend and frontend servers. Tests cover auth flows, room management, and real-time chat (including a two-user messaging test).
+
+```bash
+# See the browser while tests run
+npx playwright test --headed
+
+# Interactive Playwright UI
+npx playwright test --ui
+```
 
 ## Project Structure
 
 ```
 src/
   main.rs           # Entry point -- loads config, creates DB pool, starts server
-  lib.rs            # AppState definition and router setup (all route bindings)
+  lib.rs            # AppState definition, router setup, CORS config
   config.rs         # Configuration from environment variables
   db.rs             # SQLite connection pool creation (WAL mode, foreign keys)
   models.rs         # Data models (User, Room, Message) and DB query functions
@@ -100,8 +107,27 @@ src/
   ws.rs             # WebSocket handler: join/leave rooms, send/broadcast messages
   connection.rs     # In-memory connection manager tracking users per room
 
+frontend/
+  src/
+    lib/
+      api.ts        # REST API client (register, login, rooms, messages)
+      auth.ts       # JWT token management (localStorage)
+      ws.ts         # WebSocket client (connect, join/leave rooms, send messages)
+    routes/
+      +layout.svelte  # Auth guard -- redirects to /login if no token
+      +layout.ts      # SSR disabled (client-side SPA)
+      +page.svelte    # Main app: room sidebar + chat area
+      login/+page.svelte
+      register/+page.svelte
+  tests/
+    helpers.ts      # Test utilities (register/login via API, setup authenticated user)
+    auth.spec.ts    # Auth flow tests (7 tests)
+    rooms.spec.ts   # Room list and creation tests (5 tests)
+    chat.spec.ts    # Messaging tests including real-time two-user test (6 tests)
+  playwright.config.ts
+
 tests/
-  integration.rs    # Integration tests (spawns real server, tests API + WebSocket)
+  integration.rs    # Backend integration tests (spawns real server, tests API + WebSocket)
 
 migrations/
   20260326000001_initial.sql  # Schema: users, rooms, messages tables + indexes
@@ -132,99 +158,6 @@ Connect to `/ws?token=<JWT>`. Messages are JSON with a `type` field:
 - `user_joined` -- a user joined the room
 - `user_left` -- a user left or disconnected
 - `new_message` -- new chat message
-
-## Manual API Testing (Postman / Bruno)
-
-Start the server with `cargo run`, then use the following requests against `http://localhost:3000`.
-
-### 1. Register a user
-
-```
-POST /api/register
-Content-Type: application/json
-
-{
-  "username": "testuser",
-  "password": "password123"
-}
-```
-
-Returns `201` with `{ "id": "...", "username": "testuser" }`.
-
-### 2. Log in
-
-```
-POST /api/login
-Content-Type: application/json
-
-{
-  "username": "testuser",
-  "password": "password123"
-}
-```
-
-Returns `200` with `{ "token": "eyJ..." }`. Copy this token — it's your bearer token for all authenticated requests (expires in 24h).
-
-### 3. Create a room
-
-```
-POST /api/rooms
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "name": "general"
-}
-```
-
-Returns `201` with the room object. Copy the `id` for subsequent requests.
-
-### 4. List rooms
-
-```
-GET /api/rooms
-Authorization: Bearer <token>
-```
-
-### 5. Get messages in a room
-
-```
-GET /api/rooms/<room_id>/messages
-Authorization: Bearer <token>
-```
-
-Optional query params: `?limit=20` or `?before=<message_id>` for cursor pagination.
-
-### 6. WebSocket
-
-Connect to:
-
-```
-ws://localhost:3000/ws?token=<token>
-```
-
-Once connected, send JSON messages:
-
-**Join a room:**
-```json
-{ "type": "join_room", "room_id": "<room_id>" }
-```
-
-**Send a message:**
-```json
-{ "type": "send_message", "room_id": "<room_id>", "content": "hello world" }
-```
-
-**Leave a room:**
-```json
-{ "type": "leave_room", "room_id": "<room_id>" }
-```
-
-The server broadcasts `user_joined`, `new_message`, and `user_left` events to all users in the room.
-
-### Multi-user testing
-
-Register a second user, get a second token, and open a second WebSocket connection. Have both join the same room to see each other's join notifications and messages in real time.
 
 ## Database Schema
 
