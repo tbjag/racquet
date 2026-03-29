@@ -45,6 +45,22 @@ export class WebSocketClient {
 		this.send({ type: 'send_message', room_id: roomId, content });
 	}
 
+	sendOffer(roomId: string, targetUserId: string, payload: RTCSessionDescriptionInit): void {
+		this.send({ type: 'offer', room_id: roomId, target_user_id: targetUserId, payload });
+	}
+
+	sendAnswer(roomId: string, targetUserId: string, payload: RTCSessionDescriptionInit): void {
+		this.send({ type: 'answer', room_id: roomId, target_user_id: targetUserId, payload });
+	}
+
+	sendIceCandidate(roomId: string, targetUserId: string, payload: RTCIceCandidateInit): void {
+		this.send({ type: 'ice_candidate', room_id: roomId, target_user_id: targetUserId, payload });
+	}
+
+	sendCallLeave(roomId: string, targetUserId: string): void {
+		this.send({ type: 'call_leave', room_id: roomId, target_user_id: targetUserId, payload: {} });
+	}
+
 	private send(data: any): void {
 		if (this.ws?.readyState === WebSocket.OPEN) {
 			this.ws.send(JSON.stringify(data));
