@@ -99,20 +99,6 @@ async fn handle_text_message(
                     .cm
                     .join_room(room_id, user_id, username, sender.clone())
                     .await;
-
-                // Send room_users to the joining user
-                let users = state.cm.get_room_users(room_id).await;
-                let user_list: Vec<_> = users
-                    .iter()
-                    .filter(|(id, _)| id != user_id)
-                    .map(|(id, name)| serde_json::json!({"user_id": id, "username": name}))
-                    .collect();
-                let response = serde_json::json!({
-                    "type": "room_users",
-                    "room_id": room_id,
-                    "users": user_list,
-                });
-                let _ = sender.send(Message::Text(response.to_string().into()));
             }
         }
         "leave_room" => {

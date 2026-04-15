@@ -27,6 +27,7 @@ async fn spawn_app() -> String {
         frontend_url: "http://localhost:5173".to_string(),
         allowed_emails: vec!["allowed@test.com".to_string()],
         test_mode: true,
+        static_dir: None,
     };
 
     let app = racquet::build_router(state);
@@ -53,11 +54,17 @@ async fn login_user(base: &str, email: &str) -> String {
     body["token"].as_str().expect("token field should exist").to_string()
 }
 
-/// Helper: register a user and return their user ID
-async fn register_and_get_id(base: &str, username: &str, password: &str) -> String {
-    let resp = register_user(base, username, password).await;
-    let body: Value = resp.json().await.expect("register response should be JSON");
-    body["id"].as_str().expect("id field should exist").to_string()
+/// Helper: create a test user via test-login and return their user ID
+async fn register_and_get_id(base: &str, username: &str, _password: &str) -> String {
+    let resp = reqwest::Client::new()
+        .post(format!("{base}/api/auth/test-login"))
+        .json(&json!({ "email": username }))
+        .send()
+        .await
+        .expect("test-login request should succeed");
+
+    let body: Value = resp.json().await.expect("test-login response should be JSON");
+    body["user_id"].as_str().expect("user_id field should exist").to_string()
 }
 
 /// Helper: drain all pending WebSocket messages with a short timeout
@@ -675,8 +682,8 @@ async fn test_ws_offer_relayed_to_target() {
 
     let alice_id = register_and_get_id(&base, "alice", "password123").await;
     let bob_id = register_and_get_id(&base, "bob", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
 
     let room = create_room(&base, &token_a, "voice").await;
     let room_id = room["id"].as_str().unwrap();
@@ -723,8 +730,8 @@ async fn test_ws_answer_relayed_to_offerer() {
 
     let alice_id = register_and_get_id(&base, "alice", "password123").await;
     let bob_id = register_and_get_id(&base, "bob", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
 
     let room = create_room(&base, &token_a, "voice").await;
     let room_id = room["id"].as_str().unwrap();
@@ -761,8 +768,8 @@ async fn test_ws_ice_candidate_relayed() {
 
     let alice_id = register_and_get_id(&base, "alice", "password123").await;
     let bob_id = register_and_get_id(&base, "bob", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
 
     let room = create_room(&base, &token_a, "voice").await;
     let room_id = room["id"].as_str().unwrap();
@@ -798,7 +805,7 @@ async fn test_ws_signaling_to_missing_user_returns_error() {
     let base = spawn_app().await;
 
     register_and_get_id(&base, "alice", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
+    let token_a = login_user(&base, "alice").await;
 
     let room = create_room(&base, &token_a, "voice").await;
     let room_id = room["id"].as_str().unwrap();
@@ -829,9 +836,9 @@ async fn test_ws_signaling_not_broadcast_to_third_user() {
     let _alice_id = register_and_get_id(&base, "alice", "password123").await;
     let bob_id = register_and_get_id(&base, "bob", "password123").await;
     let _charlie_id = register_and_get_id(&base, "charlie", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
-    let token_c = login_user(&base, "charlie", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
+    let token_c = login_user(&base, "charlie").await;
 
     let room = create_room(&base, &token_a, "voice").await;
     let room_id = room["id"].as_str().unwrap();
@@ -875,8 +882,8 @@ async fn test_ws_join_room_returns_room_users() {
 
     let alice_id = register_and_get_id(&base, "alice", "password123").await;
     let _bob_id = register_and_get_id(&base, "bob", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
 
     let room = create_room(&base, &token_a, "voice").await;
     let room_id = room["id"].as_str().unwrap();

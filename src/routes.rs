@@ -150,7 +150,7 @@ pub async fn test_login(
     let token = auth::create_token(&user.id, &user.username, &user.email, &state.jwt_secret)?;
     tracing::info!(user_id = %user.id, email = %email, "test login");
 
-    Ok(Json(serde_json::json!({ "token": token })))
+    Ok(Json(serde_json::json!({ "token": token, "user_id": user.id })))
 }
 
 // --- Profile ---

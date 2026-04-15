@@ -21,17 +21,13 @@ pub struct AppState {
     pub frontend_url: String,
     pub allowed_emails: Vec<String>,
     pub test_mode: bool,
+    pub static_dir: Option<String>,
 }
 
 pub fn build_router(state: AppState) -> axum::Router {
     use axum::routing::{get, post};
-    use tower_http::cors::{Any, CorsLayer};
+    use tower_http::services::{ServeDir, ServeFile};
     use tower_http::trace::TraceLayer;
-
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
 
     let mut router = axum::Router::new()
         .route("/api/auth/google", get(routes::google_auth_redirect))
@@ -48,8 +44,17 @@ pub fn build_router(state: AppState) -> axum::Router {
         router = router.route("/api/auth/test-login", post(routes::test_login));
     }
 
-    router
+    let static_dir = state.static_dir.clone();
+    let mut router = router
         .layer(TraceLayer::new_for_http())
-        .layer(cors)
-        .with_state(state)
+        .with_state(state);
+
+    if let Some(dir) = static_dir {
+        let index = format!("{dir}/index.html");
+        router = router.fallback_service(
+            ServeDir::new(&dir).fallback(ServeFile::new(index)),
+        );
+    }
+
+    router
 }

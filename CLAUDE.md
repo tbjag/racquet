@@ -134,10 +134,14 @@ Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via
 - Test-only `POST /api/auth/test-login` endpoint (gated by `RACQUET_TEST_MODE=true`) for Playwright and Rust integration tests
 - 24 Rust tests (8 unit + 16 integration), 17 Playwright tests
 
-### Phase 5 — Polish and Windows Build
-- Frontend compiled to static files, served by Axum (single binary + static folder)
-- Cross-compile from WSL: `cargo build --target x86_64-pc-windows-gnu`
-- If C dependencies are added later, use `cross` (Docker-based) instead of raw cross-compilation
+### Phase 5 — Single-Origin Prod Deploy ✅
+- Frontend built with `@sveltejs/adapter-static` → `frontend/dist/` (SPA fallback on `index.html`)
+- Axum serves `dist/` via `tower-http::services::ServeDir` with a `ServeFile` not-found service (SPA client-routing works for direct navigation like `/login`)
+- Static dir is opt-in via `STATIC_DIR` env var — unset in dev so Vite owns the frontend on :5173
+- Frontend calls use same-origin relative URLs; Vite proxies `/api` and `/ws` to Axum in dev
+- CORS removed (same-origin in both dev and prod)
+- Release profile: `lto = true`, `codegen-units = 1`, `strip = true`
+- Deployment: Linux-only on a Digital Ocean droplet; Caddy terminates TLS and routes `racquet.tbjag.com` → `localhost:3000` (WebSocket upgrade is automatic in Caddy v2). systemd unit at `deploy/racquet.service`.
 
 ## Production Deployment Notes
 
@@ -153,4 +157,3 @@ Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via
 - **WSL has no mic/camera access** — always test audio/video in a Windows browser, never from WSL directly.
 - **P2P mesh for group calls** — at 5+ simultaneous video streams, client bandwidth becomes heavy. Acceptable for this scale but worth monitoring.
 - **STUN/TURN**: P2P works on a local network without these. For users on different networks, a STUN server is required (use `stun:stun.l.google.com:19302`). Users behind strict NATs may also need a TURN relay.
-- **Cross-compilation from WSL**: `x86_64-pc-windows-gnu` works for a pure Rust binary. If native C dependencies are introduced, switch to `cross`.

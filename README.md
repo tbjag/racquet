@@ -177,48 +177,96 @@ Three tables with foreign key relationships:
 
 Migrations run automatically on server startup.
 
-## Deployment Notes (TODO)
+## Deployment
 
-Notes for cloud deployment on Digital Ocean with Caddy reverse proxy.
+Single-origin deploy on a Linux VPS (tested layout: Digital Ocean droplet + Caddy). Axum serves both the API and the prebuilt Svelte SPA on port 3000; Caddy terminates TLS and routes a subdomain to it.
 
-### HTTPS is required
+### 1. Build
 
-Browsers block `getUserMedia` (camera/mic) on non-localhost origins without HTTPS. Caddy handles TLS automatically via Let's Encrypt.
+```bash
+# Frontend -> static bundle at frontend/dist/
+cd frontend && npm ci && npm run build && cd ..
 
-### Caddy reverse proxy setup
+# Backend -> target/release/racquet (LTO + strip, small binary)
+cargo build --release
+```
 
-Add a subdomain (e.g. `racquet.yourdomain.com`) with a Caddy config block that:
-- Proxies `/api/*` and `/ws` to the Axum server (`localhost:3000`)
-- WebSocket proxying needs explicit config in Caddy for the `/ws` path
-- Optionally serve the built frontend static files from Caddy, or let Axum serve them (Phase 4)
+### 2. Droplet layout
+
+Copy to `/opt/racquet/` on the droplet:
+
+```
+/opt/racquet/
+  racquet               # from target/release/
+  dist/                 # from frontend/dist/
+  .env                  # copied from .env.example with prod values
+  allowed_emails.txt    # one email per line
+```
+
+Create a `racquet` system user that owns `/opt/racquet/`.
+
+### 3. `.env` (prod values)
+
+```env
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=https://racquet.yourdomain.com/api/auth/google/callback
+FRONTEND_URL=https://racquet.yourdomain.com
+JWT_SECRET=<generate a strong random value>
+DATABASE_URL=sqlite:/opt/racquet/racquet.db?mode=rwc
+STATIC_DIR=/opt/racquet/dist
+```
+
+### 4. systemd
+
+```bash
+sudo cp deploy/racquet.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now racquet
+sudo systemctl status racquet
+```
+
+The unit in `deploy/racquet.service` runs the binary as the `racquet` user, loads `/opt/racquet/.env`, and restarts on failure.
+
+### 5. Caddy
+
+Add a block to your existing Caddyfile (Caddy v2 auto-handles the WebSocket upgrade for `/ws`):
+
+```caddy
+racquet.yourdomain.com {
+    reverse_proxy localhost:3000
+}
+```
+
+Then `sudo systemctl reload caddy`.
+
+### 6. Google Cloud Console
+
+In your OAuth 2.0 Client:
+- **Authorized redirect URIs**: add `https://racquet.yourdomain.com/api/auth/google/callback`
+- **Authorized JavaScript origins**: add `https://racquet.yourdomain.com`
+
+### Going-live checklist
+
+1. Create the `racquet` system user and `/opt/racquet/` directory.
+2. Populate `.env` with real Google OAuth credentials and a strong `JWT_SECRET` (`openssl rand -hex 32`).
+3. Copy `target/release/racquet` + `frontend/dist/` + `allowed_emails.txt` into `/opt/racquet/`.
+4. Install the systemd unit (`deploy/racquet.service`) and `systemctl enable --now racquet`.
+5. Add the Caddy block for `racquet.yourdomain.com` and reload Caddy.
+6. Update Google Cloud Console redirect URIs + JS origins to the live domain.
+7. Add a TURN server (coturn) only if someone actually can't connect over pure STUN.
 
 ### STUN/TURN
 
-Google's free STUN server (`stun:stun.l.google.com:19302`) is already configured and sufficient for most connections. Users behind strict NATs (mobile carriers, some corporate networks) will fail to connect without a TURN relay. Coturn is the standard self-hosted option and can run on the same droplet. Start without TURN and add it only if someone can't connect.
+Google's public STUN server is already configured and is enough for most connections. Users behind strict NATs (mobile carriers, some corporate networks) may need a TURN relay. Add [coturn](https://github.com/coturn/coturn) on the same droplet if someone can't connect.
 
-### SQLite sufficiency
+### Message cleanup
 
-SQLite is fine for 2-10 users. Write volume (chat messages) is trivial at this scale. WAL mode is already enabled via sqlx, which handles concurrent reads well. If contention ever becomes an issue, that's the signal to consider Postgres -- but it shouldn't at this scale.
+No auto-cleanup exists yet. SQLite is fine at this scale; if the DB ever grows, run:
 
-### Old message cleanup
+```sql
+DELETE FROM messages WHERE created_at < datetime('now', '-30 days');
+VACUUM;
+```
 
-No auto-cleanup exists yet. Options:
-- **Cron job**: `DELETE FROM messages WHERE created_at < datetime('now', '-30 days')` against the SQLite DB
-- **In-app**: a Rust background task using `tokio::spawn` with `tokio::time::interval`
-- Run `VACUUM` after bulk deletes if disk space matters (SQLite doesn't reclaim space automatically)
-
-### Security hardening for production
-
-- **JWT secret**: must be a strong random value from an environment variable (not the dev default)
-- **CORS**: lock down to your domain (currently permissive for dev)
-- **Rate limiting**: not critical at this scale but trivial to add with `tower` middleware
-
-### Google SSO (optional)
-
-Can add Google OAuth 2.0 / OpenID Connect alongside existing password auth:
-1. Create OAuth 2.0 credentials in Google Cloud Console (free)
-2. Add a backend endpoint (`/api/auth/google`) that exchanges the auth code with Google for an ID token
-3. Frontend: "Sign in with Google" button that redirects to Google's OAuth URL
-4. DB: add `google_id` column to `users` table, make password optional for Google users
-5. The JWT issued by the server stays the same, so WebSocket auth, rooms, chat, and WebRTC all work unchanged
-6. OAuth redirect URI must be HTTPS (Caddy handles this)
+via cron.

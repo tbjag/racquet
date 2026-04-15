@@ -31,6 +31,7 @@ async fn main() {
         frontend_url: config.frontend_url,
         allowed_emails: config.allowed_emails,
         test_mode: config.test_mode,
+        static_dir: config.static_dir,
     };
 
     let app = build_router(state);

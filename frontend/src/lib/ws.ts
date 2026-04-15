@@ -1,6 +1,9 @@
-const WS_BASE = 'ws://localhost:3000';
-
 type MessageHandler = (msg: any) => void;
+
+function wsBase(): string {
+	const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+	return `${proto}//${window.location.host}`;
+}
 
 export class WebSocketClient {
 	private ws: WebSocket | null = null;
@@ -9,7 +12,7 @@ export class WebSocketClient {
 	connect(token: string): void {
 		if (this.ws) this.ws.close();
 
-		this.ws = new WebSocket(`${WS_BASE}/ws?token=${token}`);
+		this.ws = new WebSocket(`${wsBase()}/ws?token=${token}`);
 
 		this.ws.onmessage = (event) => {
 			try {

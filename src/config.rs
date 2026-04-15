@@ -10,6 +10,7 @@ pub struct Config {
     pub frontend_url: String,
     pub allowed_emails: Vec<String>,
     pub test_mode: bool,
+    pub static_dir: Option<String>,
 }
 
 impl Config {
@@ -56,6 +57,8 @@ impl Config {
 
         let allowed_emails = load_allowed_emails();
 
+        let static_dir = std::env::var("STATIC_DIR").ok().filter(|s| !s.is_empty());
+
         Self {
             database_url,
             jwt_secret,
@@ -66,6 +69,7 @@ impl Config {
             frontend_url,
             allowed_emails,
             test_mode,
+            static_dir,
         }
     }
 }

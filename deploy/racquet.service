@@ -1,0 +1,15 @@
+[Unit]
+Description=Racquet chat/video server
+After=network.target
+
+[Service]
+Type=simple
+User=racquet
+WorkingDirectory=/opt/racquet
+EnvironmentFile=/opt/racquet/.env
+ExecStart=/opt/racquet/racquet
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

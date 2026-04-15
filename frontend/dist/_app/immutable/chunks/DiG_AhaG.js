@@ -1,0 +1,1 @@
+const e="racquet_token";function o(){return typeof window>"u"?null:localStorage.getItem(e)}function n(t){localStorage.setItem(e,t)}function a(){localStorage.removeItem(e)}export{a as c,o as g,n as s};
