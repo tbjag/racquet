@@ -38,6 +38,14 @@ impl ConnectionManager {
         let mut rooms = self.rooms.write().await;
         let room = rooms.entry(room_id.to_string()).or_insert_with(HashMap::new);
 
+        // Collect existing users list before notifying (excludes the joining user)
+        let existing_users: Vec<serde_json::Value> = room
+            .iter()
+            .map(|(id, user)| {
+                serde_json::json!({ "user_id": id, "username": user.username })
+            })
+            .collect();
+
         // Notify existing users in the room
         let notification = serde_json::json!({
             "type": "user_joined",
@@ -49,6 +57,14 @@ impl ConnectionManager {
         for existing_user in room.values() {
             let _ = existing_user.sender.send(msg.clone());
         }
+
+        // Send room_users list to the joining user
+        let room_users_msg = serde_json::json!({
+            "type": "room_users",
+            "room_id": room_id,
+            "users": existing_users,
+        });
+        let _ = sender.send(axum::extract::ws::Message::Text(room_users_msg.to_string().into()));
 
         room.insert(
             user_id.to_string(),
@@ -153,6 +169,18 @@ impl ConnectionManager {
         }
     }
 
+    pub async fn send_to_user(&self, room_id: &str, target_user_id: &str, message: &str) -> bool {
+        let rooms = self.rooms.read().await;
+        if let Some(room) = rooms.get(room_id) {
+            if let Some(user) = room.get(target_user_id) {
+                let msg = axum::extract::ws::Message::Text(message.to_string().into());
+                let _ = user.sender.send(msg);
+                return true;
+            }
+        }
+        false
+    }
+
     pub async fn get_room_users(&self, room_id: &str) -> Vec<(UserId, String)> {
         let rooms = self.rooms.read().await;
         rooms
@@ -224,9 +252,12 @@ mod tests {
         let (tx2, mut rx2) = make_user_channel();
 
         cm.join_room("room-1", "user-1", "alice", tx1).await;
+        // Drain room_users sent to alice
+        let _ = rx1.recv().await;
         cm.join_room("room-1", "user-2", "bob", tx2).await;
-
-        // Drain the user_joined notification that bob's join sent to alice
+        // Drain room_users sent to bob
+        let _ = rx2.recv().await;
+        // Drain user_joined notification that bob's join sent to alice
         let _ = rx1.recv().await;
 
         let msg = r#"{"type":"new_message","content":"hello"}"#;
@@ -240,12 +271,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_send_to_user_delivers_to_target() {
+        let cm = ConnectionManager::new();
+        let (tx1, mut rx1) = make_user_channel();
+        let (tx2, mut rx2) = make_user_channel();
+
+        cm.join_room("room-1", "user-1", "alice", tx1).await;
+        // Drain room_users sent to alice
+        let _ = rx1.recv().await;
+        cm.join_room("room-1", "user-2", "bob", tx2).await;
+        // Drain room_users sent to bob
+        let _ = rx2.recv().await;
+        // Drain user_joined notification that bob's join sent to alice
+        let _ = rx1.recv().await;
+
+        let msg = r#"{"type":"offer","payload":"test"}"#;
+        let sent = cm.send_to_user("room-1", "user-2", msg).await;
+        assert!(sent, "should return true when user exists");
+
+        let received = rx2.recv().await.expect("user-2 should receive the message");
+        assert_eq!(received.into_text().unwrap(), msg);
+
+        // user-1 should NOT receive it
+        let nothing = tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            rx1.recv(),
+        ).await;
+        assert!(nothing.is_err(), "user-1 should not receive a targeted message for user-2");
+    }
+
+    #[tokio::test]
+    async fn test_send_to_user_returns_false_for_missing_user() {
+        let cm = ConnectionManager::new();
+        let (tx1, _rx1) = make_user_channel();
+        cm.join_room("room-1", "user-1", "alice", tx1).await;
+
+        let sent = cm.send_to_user("room-1", "user-99", "msg").await;
+        assert!(!sent, "should return false when target user not in room");
+    }
+
+    #[tokio::test]
+    async fn test_send_to_user_returns_false_for_missing_room() {
+        let cm = ConnectionManager::new();
+        let sent = cm.send_to_user("nonexistent-room", "user-1", "msg").await;
+        assert!(!sent, "should return false when room doesn't exist");
+    }
+
+    #[tokio::test]
     async fn test_join_room_sends_user_joined() {
         let cm = ConnectionManager::new();
         let (tx1, mut rx1) = make_user_channel();
         let (tx2, _rx2) = make_user_channel();
 
         cm.join_room("room-1", "user-1", "alice", tx1).await;
+        // Drain room_users sent to alice (empty list)
+        let _ = rx1.recv().await;
+
+        // Bob joins — alice should receive a user_joined notification
         cm.join_room("room-1", "user-2", "bob", tx2).await;
 
         let received = rx1.recv().await.expect("alice should receive user_joined notification");

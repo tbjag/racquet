@@ -59,7 +59,7 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only pas
 - **Code editing and compilation**: inside WSL
 - **Testing**: Windows browser (Chrome or Edge) at `http://localhost:5173` (Vite dev server)
 - **Integration tests**: Playwright (Chromium headless) — runs against real backend + frontend
-- **State**: Phase 4 complete — backend server + Svelte frontend with Google OAuth, rooms, real-time chat, and WebRTC signaling
+- **State**: Phase 3 complete — backend server + Svelte frontend with auth, rooms, real-time chat, and WebRTC audio/video calls
 
 WSL2 and Windows share `localhost`, so any port Axum binds to in WSL is immediately accessible from the Windows browser with no extra config.
 
@@ -91,9 +91,8 @@ cd frontend && npx playwright test
 
 Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via `webServer` config. Tests use a separate SQLite DB at `/tmp/racquet-e2e.db`. If servers are already running, they are reused.
 
-- 17 tests across 3 files: `auth.spec.ts`, `rooms.spec.ts`, `chat.spec.ts`
-- Tests use a `POST /api/auth/test-login` endpoint (enabled by `RACQUET_TEST_MODE=true`) to bypass Google OAuth
-- Tests use random emails/room names so they don't depend on a clean DB
+- 25 tests across 4 files: `auth.spec.ts`, `rooms.spec.ts`, `chat.spec.ts`, `webrtc.spec.ts`
+- Tests use random usernames/room names so they don't depend on a clean DB
 - For headed mode (see the browser): `npx playwright test --headed`
 - For the interactive UI: `npx playwright test --ui`
 
@@ -102,6 +101,7 @@ Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via
 - Two browser tabs share the same mic — awkward for audio testing
 - **Two different browsers (Chrome + Edge)** is the recommended approach for testing calls
 - WebRTC requires HTTPS for mic/camera in production, but `localhost` is exempt — plain HTTP works in dev
+- **Windows exclusive camera access**: only one browser can hold the camera at a time. The second browser falls back to audio-only automatically. Use a virtual webcam (e.g. OBS Virtual Camera) or a second machine for full two-way video testing.
 
 ## Implementation Phases
 
@@ -117,9 +117,13 @@ Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via
 - Message history loaded via REST on room join
 
 ### Phase 3 — WebRTC Signaling ✅
-- Signaling message types added to WebSocket protocol: `offer`, `answer`, `ice-candidate`
-- Server relays signaling messages between peers (does not interpret them)
-- Frontend: `RTCPeerConnection` + `getUserMedia` for P2P audio/video
+- Signaling message types added to WebSocket protocol: `offer`, `answer`, `ice_candidate`, `call_leave`
+- Server relays signaling messages to specific peers via `ConnectionManager::send_to_user()` (does not interpret payloads)
+- `room_users` message sent on room join for peer discovery
+- Frontend `WebRTCManager` (`frontend/src/lib/webrtc.ts`) handles full-mesh P2P connections with ICE candidate buffering
+- Call UI: Join/Leave Call, Mute, Video Off buttons; local video preview; remote stream display
+- Graceful media fallback: audio+video → audio-only → no media (handles exclusive camera access on Windows)
+- 7 Playwright tests for WebRTC (including two-user P2P call e2e test), 6 Rust integration tests for signaling relay, 3 unit tests for `send_to_user`
 
 ### Phase 4 — Google OAuth + Email Whitelist ✅
 - Google OAuth (authorization code flow) replaces username/password auth entirely

@@ -1,0 +1,193 @@
+import { test, expect } from '@playwright/test';
+import { setupAuthenticatedUser, registerUser, loginUser, createRoom } from './helpers';
+
+const rnd = () => Math.random().toString(36).slice(2, 8);
+
+async function selectRoom(page: import('@playwright/test').Page, roomName: string) {
+	await page
+		.getByTestId('room-list')
+		.locator('[data-testid="room-item"]')
+		.filter({ hasText: roomName })
+		.click();
+	await expect(page.getByTestId('chat-area')).toBeVisible();
+}
+
+test.describe('WebRTC calls', () => {
+	test('call button appears when room is selected', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		await expect(page.getByTestId('call-button')).toBeVisible();
+		await expect(page.getByTestId('call-button')).toHaveText('Join Call');
+	});
+
+	test('clicking join call shows local video and changes button to leave call', async ({
+		page,
+		request
+	}) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		await page.getByTestId('call-button').click();
+
+		await expect(page.getByTestId('local-video')).toBeVisible();
+		await expect(page.getByTestId('call-button')).toHaveText('Leave Call');
+	});
+
+	test('clicking leave call hides local video and reverts button', async ({
+		page,
+		request
+	}) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		// Join then leave
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('local-video')).toBeVisible();
+
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('local-video')).not.toBeVisible();
+		await expect(page.getByTestId('call-button')).toHaveText('Join Call');
+	});
+
+	test('mute button toggles audio mute state', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+
+		const muteBtn = page.getByTestId('mute-button');
+		await expect(muteBtn).toBeVisible();
+		await expect(muteBtn).toHaveText('Mute');
+
+		await muteBtn.click();
+		await expect(muteBtn).toHaveText('Unmute');
+
+		await muteBtn.click();
+		await expect(muteBtn).toHaveText('Mute');
+	});
+
+	test('video toggle button toggles video state', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+
+		const videoBtn = page.getByTestId('video-toggle-button');
+		await expect(videoBtn).toBeVisible();
+		await expect(videoBtn).toHaveText('Video Off');
+
+		await videoBtn.click();
+		await expect(videoBtn).toHaveText('Video On');
+
+		await videoBtn.click();
+		await expect(videoBtn).toHaveText('Video Off');
+	});
+
+	test('two users in a call see each other\'s remote streams', async ({
+		browser,
+		request
+	}) => {
+		// Set up two browser contexts with permissions
+		const contextA = await browser.newContext({
+			permissions: ['camera', 'microphone']
+		});
+		const contextB = await browser.newContext({
+			permissions: ['camera', 'microphone']
+		});
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+
+		// Create two authenticated users
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		const { token: tokenB } = await setupAuthenticatedUser(pageB, request);
+
+		// Create a shared room
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		// Both users navigate and select the room
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		// Both join the call
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+
+		// Each user should see a remote stream from the other user
+		await expect(pageA.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		await contextA.close();
+		await contextB.close();
+	});
+
+	test('user leaving call removes their remote stream from other user', async ({
+		browser,
+		request
+	}) => {
+		const contextA = await browser.newContext({
+			permissions: ['camera', 'microphone']
+		});
+		const contextB = await browser.newContext({
+			permissions: ['camera', 'microphone']
+		});
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		const { token: tokenB } = await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		// Both join
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+
+		// Wait for remote streams to appear
+		await expect(pageA.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		// User B leaves the call
+		await pageB.getByTestId('call-button').click();
+
+		// User A should no longer see the remote stream
+		await expect(pageA.locator('[data-testid="remote-stream"]')).toHaveCount(0, {
+			timeout: 10000
+		});
+
+		await contextA.close();
+		await contextB.close();
+	});
+});

@@ -161,31 +161,49 @@ async fn handle_text_message(
                 .broadcast_to_room(room_id, &broadcast.to_string())
                 .await;
         }
-        "offer" | "answer" | "ice_candidate" => {
-            let target = match parsed["target_user_id"].as_str() {
-                Some(t) => t,
-                None => return,
-            };
+        "offer" | "answer" | "ice_candidate" | "call_leave" => {
             let room_id = match parsed["room_id"].as_str() {
-                Some(r) => r,
-                None => return,
+                Some(id) => id,
+                None => {
+                    let _ = sender.send(Message::Text(
+                        serde_json::json!({ "type": "error", "message": "missing room_id" }).to_string().into(),
+                    ));
+                    return;
+                }
             };
-            let mut relay = parsed.clone();
-            relay["from_user_id"] = serde_json::json!(user_id);
-            relay["from_username"] = serde_json::json!(username);
-            tracing::debug!(msg_type = %msg_type, from = %user_id, to = %target, room_id = %room_id, "relaying signaling message");
-            state.cm.send_to_user(target, &relay.to_string()).await;
-        }
-        "call_join" | "call_leave" => {
-            if let Some(room_id) = parsed["room_id"].as_str() {
-                let notification = serde_json::json!({
-                    "type": msg_type,
-                    "room_id": room_id,
-                    "user_id": user_id,
-                    "username": username,
-                });
-                tracing::info!(msg_type = %msg_type, user_id = %user_id, room_id = %room_id, "call event");
-                state.cm.broadcast_to_room(room_id, &notification.to_string()).await;
+            let target_user_id = match parsed["target_user_id"].as_str() {
+                Some(id) => id,
+                None => {
+                    let _ = sender.send(Message::Text(
+                        serde_json::json!({ "type": "error", "message": "missing target_user_id" }).to_string().into(),
+                    ));
+                    return;
+                }
+            };
+            let payload = &parsed["payload"];
+            if payload.is_null() {
+                let _ = sender.send(Message::Text(
+                    serde_json::json!({ "type": "error", "message": "missing payload" }).to_string().into(),
+                ));
+                return;
+            }
+
+            let relay = serde_json::json!({
+                "type": msg_type,
+                "room_id": room_id,
+                "from_user_id": user_id,
+                "from_username": username,
+                "payload": payload,
+            });
+
+            let sent = state.cm.send_to_user(room_id, target_user_id, &relay.to_string()).await;
+            if !sent {
+                let _ = sender.send(Message::Text(
+                    serde_json::json!({
+                        "type": "error",
+                        "message": format!("user {} not found in room", target_user_id)
+                    }).to_string().into(),
+                ));
             }
         }
         _ => {
