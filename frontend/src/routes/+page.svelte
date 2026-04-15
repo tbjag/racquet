@@ -2,7 +2,8 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getToken } from '$lib/auth';
-	import { getRooms, createRoom, getMessages } from '$lib/api';
+	import { getRooms, createRoom, getMessages, getProfile, updateProfile } from '$lib/api';
+	import { setToken, clearToken } from '$lib/auth';
 	import { WebSocketClient } from '$lib/ws';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
@@ -24,6 +25,9 @@
 	let newRoomName = $state('');
 	let ws: WebSocketClient | null = null;
 	let currentRoomId: string | null = null;
+	let displayName = $state('');
+	let editingName = $state(false);
+	let editNameValue = $state('');
 
 	onMount(async () => {
 		token = getToken();
@@ -35,6 +39,9 @@
 		ws = new WebSocketClient();
 		ws.connect(token);
 		ws.onMessage(handleWsMessage);
+
+		const profile = await getProfile(token);
+		displayName = profile.username;
 
 		await loadRooms();
 	});
@@ -87,6 +94,32 @@
 		messageInput = '';
 	}
 
+	async function handleSaveName(e: Event) {
+		e.preventDefault();
+		if (!token || !editNameValue.trim()) return;
+
+		const result = await updateProfile(token, editNameValue.trim());
+		token = result.token;
+		setToken(result.token);
+		displayName = result.user.username;
+		editingName = false;
+
+		// Reconnect WebSocket with new token so messages use the new name
+		ws?.disconnect();
+		ws = new WebSocketClient();
+		ws.connect(token);
+		ws.onMessage(handleWsMessage);
+		if (currentRoomId) {
+			ws.joinRoom(currentRoomId);
+		}
+	}
+
+	function handleLogout() {
+		clearToken();
+		ws?.disconnect();
+		goto('/login');
+	}
+
 	function handleKeyDown(e: KeyboardEvent) {
 		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault();
@@ -97,6 +130,25 @@
 
 <div class="app">
 	<aside class="sidebar">
+		<div data-testid="user-profile" class="user-profile">
+			{#if editingName}
+				<form onsubmit={handleSaveName} class="edit-name-form">
+					<input
+						data-testid="display-name-input"
+						type="text"
+						bind:value={editNameValue}
+						maxlength={30}
+					/>
+					<button data-testid="save-name-button" type="submit">Save</button>
+					<button type="button" onclick={() => (editingName = false)}>Cancel</button>
+				</form>
+			{:else}
+				<span data-testid="display-name">{displayName}</span>
+				<button data-testid="edit-name-button" onclick={() => { editNameValue = displayName; editingName = true; }}>Edit</button>
+			{/if}
+			<button data-testid="logout-button" onclick={handleLogout}>Logout</button>
+		</div>
+
 		<div class="sidebar-header">
 			<h2>Rooms</h2>
 			<button data-testid="create-room-button" onclick={() => (showCreateForm = !showCreateForm)}>+</button>

@@ -7,7 +7,7 @@
 
 	let { children } = $props();
 
-	const publicPaths = ['/login', '/register'];
+	const publicPaths = ['/login', '/auth/callback'];
 
 	onMount(() => {
 		const token = getToken();

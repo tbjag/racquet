@@ -1,27 +1,7 @@
 use crate::errors::AppError;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
-use password_hash::SaltString;
-use rand_core::OsRng;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
-pub fn hash_password(password: &str) -> Result<String, AppError> {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let hash = argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| AppError::Internal(format!("password hashing failed: {e}")))?;
-    Ok(hash.to_string())
-}
-
-pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
-    let parsed_hash = PasswordHash::new(hash)
-        .map_err(|e| AppError::Internal(format!("invalid password hash: {e}")))?;
-    Ok(Argon2::default()
-        .verify_password(password.as_bytes(), &parsed_hash)
-        .is_ok())
-}
-
-pub fn create_token(user_id: &str, username: &str, secret: &str) -> Result<String, AppError> {
+pub fn create_token(user_id: &str, username: &str, email: &str, secret: &str) -> Result<String, AppError> {
     let exp = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::hours(24))
         .expect("valid timestamp")
@@ -30,6 +10,7 @@ pub fn create_token(user_id: &str, username: &str, secret: &str) -> Result<Strin
     let claims = Claims {
         sub: user_id.to_string(),
         username: username.to_string(),
+        email: email.to_string(),
         exp,
     };
 
@@ -56,6 +37,7 @@ pub fn verify_token(token: &str, secret: &str) -> Result<Claims, AppError> {
 pub struct Claims {
     pub sub: String,
     pub username: String,
+    pub email: String,
     pub exp: usize,
 }
 
@@ -63,6 +45,7 @@ pub struct Claims {
 pub struct AuthUser {
     pub user_id: String,
     pub username: String,
+    pub email: String,
 }
 
 impl axum::extract::FromRequestParts<crate::AppState> for AuthUser {
@@ -99,6 +82,7 @@ impl axum::extract::FromRequestParts<crate::AppState> for AuthUser {
             Ok(AuthUser {
                 user_id: claims.sub,
                 username: claims.username,
+                email: claims.email,
             })
         }
     }
@@ -109,38 +93,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hash_and_verify_password() {
-        let password = "securepassword123";
-        let hash = hash_password(password).expect("hashing should succeed");
-
-        // Hash should not be the plaintext password
-        assert_ne!(hash, password);
-
-        // Verification with correct password should return true
-        let result = verify_password(password, &hash).expect("verify should succeed");
-        assert!(result, "correct password should verify as true");
-    }
-
-    #[test]
-    fn test_verify_wrong_password() {
-        let hash = hash_password("correctpassword").expect("hashing should succeed");
-
-        let result = verify_password("wrongpassword", &hash).expect("verify should succeed");
-        assert!(!result, "wrong password should verify as false");
-    }
-
-    #[test]
     fn test_create_and_decode_token() {
         let secret = "test-secret-key";
         let user_id = "user-123";
         let username = "alice";
+        let email = "alice@gmail.com";
 
-        let token = create_token(user_id, username, secret).expect("token creation should succeed");
+        let token = create_token(user_id, username, email, secret).expect("token creation should succeed");
         assert!(!token.is_empty(), "token should not be empty");
 
         let claims = verify_token(&token, secret).expect("token verification should succeed");
         assert_eq!(claims.sub, user_id);
         assert_eq!(claims.username, username);
+        assert_eq!(claims.email, email);
         assert!(claims.exp > 0, "expiry should be set");
     }
 
@@ -152,7 +117,8 @@ mod tests {
         let claims = Claims {
             sub: "user-123".to_string(),
             username: "alice".to_string(),
-            exp: 0, // epoch = already expired
+            email: "alice@gmail.com".to_string(),
+            exp: 0,
         };
 
         let token = encode(

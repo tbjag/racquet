@@ -11,12 +11,14 @@ pub struct ConnectedUser {
 
 pub struct ConnectionManager {
     rooms: RwLock<HashMap<RoomId, HashMap<UserId, ConnectedUser>>>,
+    user_senders: RwLock<HashMap<UserId, mpsc::UnboundedSender<axum::extract::ws::Message>>>,
 }
 
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             rooms: RwLock::new(HashMap::new()),
+            user_senders: RwLock::new(HashMap::new()),
         }
     }
 
@@ -27,6 +29,12 @@ impl ConnectionManager {
         username: &str,
         sender: mpsc::UnboundedSender<axum::extract::ws::Message>,
     ) {
+        // Register in global user_senders index
+        {
+            let mut senders = self.user_senders.write().await;
+            senders.insert(user_id.to_string(), sender.clone());
+        }
+
         let mut rooms = self.rooms.write().await;
         let room = rooms.entry(room_id.to_string()).or_insert_with(HashMap::new);
 
@@ -85,6 +93,12 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect(&self, user_id: &str) {
+        // Remove from global user_senders
+        {
+            let mut senders = self.user_senders.write().await;
+            senders.remove(user_id);
+        }
+
         let mut rooms = self.rooms.write().await;
         let room_ids: Vec<String> = rooms
             .iter()
@@ -115,6 +129,16 @@ impl ConnectionManager {
                     }
                 }
             }
+        }
+    }
+
+    pub async fn send_to_user(&self, user_id: &str, message: &str) -> bool {
+        let senders = self.user_senders.read().await;
+        if let Some(sender) = senders.get(user_id) {
+            let msg = axum::extract::ws::Message::Text(message.to_string().into());
+            sender.send(msg).is_ok()
+        } else {
+            false
         }
     }
 
@@ -182,11 +206,9 @@ mod tests {
         let (tx1, _rx1) = make_user_channel();
         let (tx2, _rx2) = make_user_channel();
 
-        // User joins two different rooms (needs separate senders)
         cm.join_room("room-1", "user-1", "alice", tx1).await;
         cm.join_room("room-2", "user-1", "alice", tx2).await;
 
-        // Disconnect should remove from both
         cm.disconnect("user-1").await;
 
         let users_room1 = cm.get_room_users("room-1").await;
@@ -210,7 +232,6 @@ mod tests {
         let msg = r#"{"type":"new_message","content":"hello"}"#;
         cm.broadcast_to_room("room-1", msg).await;
 
-        // Both users should receive the message
         let received1 = rx1.recv().await.expect("user-1 should receive message");
         let received2 = rx2.recv().await.expect("user-2 should receive message");
 
@@ -224,10 +245,7 @@ mod tests {
         let (tx1, mut rx1) = make_user_channel();
         let (tx2, _rx2) = make_user_channel();
 
-        // Alice joins first
         cm.join_room("room-1", "user-1", "alice", tx1).await;
-
-        // Bob joins — alice should receive a user_joined notification
         cm.join_room("room-1", "user-2", "bob", tx2).await;
 
         let received = rx1.recv().await.expect("alice should receive user_joined notification");
@@ -238,5 +256,40 @@ mod tests {
         assert_eq!(parsed["user_id"], "user-2");
         assert_eq!(parsed["username"], "bob");
         assert_eq!(parsed["room_id"], "room-1");
+    }
+
+    #[tokio::test]
+    async fn test_send_to_user_delivers_message() {
+        let cm = ConnectionManager::new();
+        let (tx, mut rx) = make_user_channel();
+
+        cm.join_room("room-1", "user-1", "alice", tx).await;
+
+        let sent = cm.send_to_user("user-1", r#"{"type":"offer"}"#).await;
+        assert!(sent, "send_to_user should return true for known user");
+
+        let received = rx.recv().await.expect("should receive message");
+        let text = received.into_text().unwrap();
+        assert!(text.contains("offer"));
+    }
+
+    #[tokio::test]
+    async fn test_send_to_user_unknown_user() {
+        let cm = ConnectionManager::new();
+
+        let sent = cm.send_to_user("nonexistent", r#"{"type":"offer"}"#).await;
+        assert!(!sent, "send_to_user should return false for unknown user");
+    }
+
+    #[tokio::test]
+    async fn test_send_to_user_after_disconnect() {
+        let cm = ConnectionManager::new();
+        let (tx, _rx) = make_user_channel();
+
+        cm.join_room("room-1", "user-1", "alice", tx).await;
+        cm.disconnect("user-1").await;
+
+        let sent = cm.send_to_user("user-1", r#"{"type":"offer"}"#).await;
+        assert!(!sent, "send_to_user should return false after disconnect");
     }
 }

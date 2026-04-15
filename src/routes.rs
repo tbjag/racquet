@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Redirect};
 use axum::Json;
 use serde::Deserialize;
 
@@ -8,75 +9,200 @@ use crate::errors::AppError;
 use crate::models;
 use crate::AppState;
 
-#[derive(Deserialize)]
-pub struct RegisterRequest {
-    username: String,
-    password: String,
+// --- Google OAuth ---
+
+pub async fn google_auth_redirect(State(state): State<AppState>) -> impl IntoResponse {
+    let url = format!(
+        "https://accounts.google.com/o/oauth2/v2/auth?\
+         client_id={}&\
+         redirect_uri={}&\
+         response_type=code&\
+         scope=openid%20email%20profile&\
+         access_type=offline",
+        urlencoding::encode(&state.google_client_id),
+        urlencoding::encode(&state.google_redirect_uri),
+    );
+    Redirect::temporary(&url)
 }
 
-pub async fn register(
+#[derive(Deserialize)]
+pub struct GoogleCallbackQuery {
+    code: Option<String>,
+    error: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GoogleTokenResponse {
+    access_token: String,
+}
+
+#[derive(Deserialize)]
+struct GoogleUserInfo {
+    email: String,
+    name: Option<String>,
+    sub: String,
+}
+
+pub async fn google_auth_callback(
     State(state): State<AppState>,
-    Json(req): Json<RegisterRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    // Validate input
-    if req.username.is_empty() || req.username.len() < 3 || req.username.len() > 20 {
-        return Err(AppError::BadRequest("username must be 3-20 characters".to_string()));
-    }
-    if req.password.len() < 8 {
-        return Err(AppError::BadRequest("password must be at least 8 characters".to_string()));
-    }
-
-    // Check for duplicate username
-    if models::find_user_by_username(&state.db, &req.username)
-        .await?
-        .is_some()
-    {
-        return Err(AppError::Conflict("username already taken".to_string()));
+    Query(query): Query<GoogleCallbackQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    if let Some(error) = query.error {
+        tracing::warn!(error = %error, "Google OAuth error");
+        return Ok(Redirect::temporary(&format!(
+            "{}/login?error=oauth_error",
+            state.frontend_url
+        )));
     }
 
+    let code = query.code.ok_or_else(|| {
+        AppError::BadRequest("missing authorization code".to_string())
+    })?;
+
+    // Exchange code for access token
+    let client = reqwest::Client::new();
+    let token_res = client
+        .post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("client_id", state.google_client_id.as_str()),
+            ("client_secret", state.google_client_secret.as_str()),
+            ("code", &code),
+            ("redirect_uri", state.google_redirect_uri.as_str()),
+            ("grant_type", "authorization_code"),
+        ])
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("token exchange failed: {e}")))?;
+
+    if !token_res.status().is_success() {
+        let body = token_res.text().await.unwrap_or_default();
+        tracing::error!(body = %body, "Google token exchange failed");
+        return Ok(Redirect::temporary(&format!(
+            "{}/login?error=oauth_error",
+            state.frontend_url
+        )));
+    }
+
+    let token_data: GoogleTokenResponse = token_res
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to parse token response: {e}")))?;
+
+    // Fetch user info
+    let userinfo: GoogleUserInfo = client
+        .get("https://www.googleapis.com/oauth2/v3/userinfo")
+        .bearer_auth(&token_data.access_token)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("userinfo request failed: {e}")))?
+        .json()
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to parse userinfo: {e}")))?;
+
+    let email = userinfo.email.to_lowercase();
+
+    // Check whitelist
+    if !state.allowed_emails.contains(&email) {
+        tracing::warn!(email = %email, "login denied: email not in whitelist");
+        return Ok(Redirect::temporary(&format!(
+            "{}/login?error=not_allowed",
+            state.frontend_url
+        )));
+    }
+
+    // Create or update user
+    let username = userinfo
+        .name
+        .unwrap_or_else(|| email.split('@').next().unwrap_or("user").to_string());
     let id = uuid::Uuid::new_v4().to_string();
-    let password_hash = auth::hash_password(&req.password)?;
+    let user = models::upsert_user_by_email(&state.db, &id, &email, &username, Some(&userinfo.sub))
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to upsert user: {e}")))?;
 
-    models::insert_user(&state.db, &id, &req.username, &password_hash).await?;
-    tracing::info!(user_id = %id, username = %req.username, "user registered");
+    let token = auth::create_token(&user.id, &user.username, &user.email, &state.jwt_secret)?;
+    tracing::info!(user_id = %user.id, email = %user.email, "user logged in via Google");
 
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "id": id,
-            "username": req.username,
-        })),
-    ))
+    Ok(Redirect::temporary(&format!(
+        "{}/auth/callback?token={}",
+        state.frontend_url, token
+    )))
 }
+
+// --- Test-only login (enabled by RACQUET_TEST_MODE) ---
 
 #[derive(Deserialize)]
-pub struct LoginRequest {
-    username: String,
-    password: String,
+pub struct TestLoginRequest {
+    email: String,
 }
 
-pub async fn login(
+pub async fn test_login(
     State(state): State<AppState>,
-    Json(req): Json<LoginRequest>,
+    Json(req): Json<TestLoginRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let user = models::find_user_by_username(&state.db, &req.username)
-        .await?
-        .ok_or_else(|| {
-            tracing::warn!(username = %req.username, "login failed: unknown username");
-            AppError::Unauthorized("invalid credentials".to_string())
-        })?;
+    let email = req.email.to_lowercase();
+    let username = email.split('@').next().unwrap_or("user").to_string();
+    let id = uuid::Uuid::new_v4().to_string();
 
-    let valid = auth::verify_password(&req.password, &user.password_hash)?;
-    if !valid {
-        tracing::warn!(username = %req.username, "login failed: invalid password");
-        return Err(AppError::Unauthorized("invalid credentials".to_string()));
-    }
+    let user = models::upsert_user_by_email(&state.db, &id, &email, &username, None)
+        .await
+        .map_err(|e| AppError::Internal(format!("failed to upsert user: {e}")))?;
 
-    let token = auth::create_token(&user.id, &user.username, &state.jwt_secret)?;
-    tracing::info!(user_id = %user.id, username = %user.username, "user logged in");
+    let token = auth::create_token(&user.id, &user.username, &user.email, &state.jwt_secret)?;
+    tracing::info!(user_id = %user.id, email = %email, "test login");
 
     Ok(Json(serde_json::json!({ "token": token })))
 }
+
+// --- Profile ---
+
+pub async fn get_profile(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let db_user = models::find_user_by_id(&state.db, &user.user_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("user not found".to_string()))?;
+
+    Ok(Json(serde_json::json!({
+        "id": db_user.id,
+        "email": db_user.email,
+        "username": db_user.username,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateProfileRequest {
+    username: String,
+}
+
+pub async fn update_profile(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<UpdateProfileRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let username = req.username.trim().to_string();
+    if username.is_empty() || username.len() > 30 {
+        return Err(AppError::BadRequest(
+            "display name must be 1-30 characters".to_string(),
+        ));
+    }
+
+    models::update_username(&state.db, &user.user_id, &username).await?;
+
+    let token = auth::create_token(&user.user_id, &username, &user.email, &state.jwt_secret)?;
+    tracing::info!(user_id = %user.user_id, username = %username, "profile updated");
+
+    Ok(Json(serde_json::json!({
+        "token": token,
+        "user": {
+            "id": user.user_id,
+            "email": user.email,
+            "username": username,
+        }
+    })))
+}
+
+// --- Rooms ---
 
 pub async fn list_rooms(
     State(state): State<AppState>,
@@ -97,7 +223,6 @@ pub async fn create_room(
     user: AuthUser,
     Json(req): Json<CreateRoomRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    // Check for duplicate room name
     let existing = models::list_rooms(&state.db).await?;
     if existing.iter().any(|r| r.name == req.name) {
         return Err(AppError::Conflict("room name already taken".to_string()));

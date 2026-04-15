@@ -1,34 +1,25 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { login } from '$lib/api';
-	import { setToken } from '$lib/auth';
+	const API_BASE = 'http://localhost:3000';
 
-	let username = $state('');
-	let password = $state('');
 	let error = $state('');
 
-	async function handleSubmit(e: Event) {
-		e.preventDefault();
-		error = '';
-		try {
-			const result = await login(username, password);
-			setToken(result.token);
-			goto('/');
-		} catch (err: any) {
-			error = err.message;
+	if (typeof window !== 'undefined') {
+		const params = new URLSearchParams(window.location.search);
+		const urlError = params.get('error');
+		if (urlError === 'not_allowed') {
+			error = 'Your Google account is not authorized to use this app.';
+		} else if (urlError === 'oauth_error') {
+			error = 'Google sign-in failed. Please try again.';
 		}
 	}
 </script>
 
 <div class="auth-page">
-	<h1>Login</h1>
-	<form onsubmit={handleSubmit}>
-		<input data-testid="username-input" type="text" placeholder="Username" bind:value={username} />
-		<input data-testid="password-input" type="password" placeholder="Password" bind:value={password} />
-		{#if error}
-			<p data-testid="error-message" class="error">{error}</p>
-		{/if}
-		<button data-testid="submit-button" type="submit">Login</button>
-	</form>
-	<p>Don't have an account? <a href="/register">Register</a></p>
+	<h1>Racquet</h1>
+	{#if error}
+		<p data-testid="error-message" class="error">{error}</p>
+	{/if}
+	<a href="{API_BASE}/api/auth/google" data-testid="google-login-button" class="google-btn">
+		Sign in with Google
+	</a>
 </div>

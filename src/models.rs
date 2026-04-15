@@ -4,8 +4,9 @@ use sqlx::SqlitePool;
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
     pub id: String,
+    pub email: String,
     pub username: String,
-    pub password_hash: String,
+    pub google_id: Option<String>,
     pub created_at: String,
 }
 
@@ -36,21 +37,64 @@ pub struct MessageWithUsername {
     pub created_at: String,
 }
 
-pub async fn insert_user(pool: &SqlitePool, id: &str, username: &str, password_hash: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
-        .bind(id)
+pub async fn upsert_user_by_email(
+    pool: &SqlitePool,
+    id: &str,
+    email: &str,
+    username: &str,
+    google_id: Option<&str>,
+) -> Result<User, sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO users (id, email, username, google_id) VALUES (?, ?, ?, ?) \
+         ON CONFLICT(email) DO UPDATE SET username = excluded.username, google_id = excluded.google_id",
+    )
+    .bind(id)
+    .bind(email)
+    .bind(username)
+    .bind(google_id)
+    .execute(pool)
+    .await?;
+
+    find_user_by_email(pool, email)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)
+}
+
+pub async fn find_user_by_email(
+    pool: &SqlitePool,
+    email: &str,
+) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "SELECT id, email, username, google_id, created_at FROM users WHERE email = ?",
+    )
+    .bind(email)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_username(
+    pool: &SqlitePool,
+    user_id: &str,
+    username: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE users SET username = ? WHERE id = ?")
         .bind(username)
-        .bind(password_hash)
+        .bind(user_id)
         .execute(pool)
         .await?;
     Ok(())
 }
 
-pub async fn find_user_by_username(pool: &SqlitePool, username: &str) -> Result<Option<User>, sqlx::Error> {
-    sqlx::query_as::<_, User>("SELECT id, username, password_hash, created_at FROM users WHERE username = ?")
-        .bind(username)
-        .fetch_optional(pool)
-        .await
+pub async fn find_user_by_id(
+    pool: &SqlitePool,
+    user_id: &str,
+) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "SELECT id, email, username, google_id, created_at FROM users WHERE id = ?",
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
 }
 
 pub async fn insert_room(pool: &SqlitePool, id: &str, name: &str, created_by: &str) -> Result<(), sqlx::Error> {
@@ -85,7 +129,6 @@ pub async fn get_messages(pool: &SqlitePool, room_id: &str, before: Option<&str>
 
     match before {
         Some(before_id) => {
-            // Use rowid for cursor pagination — more reliable than timestamp
             sqlx::query_as::<_, MessageWithUsername>(
                 "SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.created_at \
                  FROM messages m JOIN users u ON m.user_id = u.id \

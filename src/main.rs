@@ -3,6 +3,8 @@ use racquet::{config, connection::ConnectionManager, db, AppState, build_router}
 
 #[tokio::main]
 async fn main() {
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -23,6 +25,12 @@ async fn main() {
         db: pool,
         cm: Arc::new(ConnectionManager::new()),
         jwt_secret: config.jwt_secret,
+        google_client_id: config.google_client_id,
+        google_client_secret: config.google_client_secret,
+        google_redirect_uri: config.google_redirect_uri,
+        frontend_url: config.frontend_url,
+        allowed_emails: config.allowed_emails,
+        test_mode: config.test_mode,
     };
 
     let app = build_router(state);

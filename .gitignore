@@ -2,6 +2,8 @@
 racquet.db
 racquet.db-shm
 racquet.db-wal
+allowed_emails.txt
+.env
 
 # Frontend
 frontend/node_modules

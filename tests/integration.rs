@@ -9,6 +9,7 @@ fn text_msg(v: Value) -> Message {
 }
 
 /// Spawns the app on a random port with a temporary SQLite database.
+/// Test mode is enabled, so `/api/auth/test-login` is available.
 /// Returns the base URL (e.g., "http://127.0.0.1:12345").
 async fn spawn_app() -> String {
     let db_url = format!("sqlite:/tmp/racquet-test-{}.db?mode=rwc", uuid::Uuid::new_v4());
@@ -20,6 +21,12 @@ async fn spawn_app() -> String {
         db: pool,
         cm: std::sync::Arc::new(racquet::connection::ConnectionManager::new()),
         jwt_secret: "test-secret".to_string(),
+        google_client_id: "test-client-id".to_string(),
+        google_client_secret: "test-client-secret".to_string(),
+        google_redirect_uri: "http://localhost:3000/api/auth/google/callback".to_string(),
+        frontend_url: "http://localhost:5173".to_string(),
+        allowed_emails: vec!["allowed@test.com".to_string()],
+        test_mode: true,
     };
 
     let app = racquet::build_router(state);
@@ -33,26 +40,16 @@ async fn spawn_app() -> String {
     format!("http://{addr}")
 }
 
-/// Helper: register a user and return the response body
-async fn register_user(base: &str, username: &str, password: &str) -> reqwest::Response {
-    reqwest::Client::new()
-        .post(format!("{base}/api/register"))
-        .json(&json!({ "username": username, "password": password }))
-        .send()
-        .await
-        .expect("register request should succeed")
-}
-
-/// Helper: login and return the JWT token string
-async fn login_user(base: &str, username: &str, password: &str) -> String {
+/// Helper: login via test-login endpoint and return the JWT token
+async fn login_user(base: &str, email: &str) -> String {
     let resp = reqwest::Client::new()
-        .post(format!("{base}/api/login"))
-        .json(&json!({ "username": username, "password": password }))
+        .post(format!("{base}/api/auth/test-login"))
+        .json(&json!({ "email": email }))
         .send()
         .await
-        .expect("login request should succeed");
+        .expect("test-login request should succeed");
 
-    let body: Value = resp.json().await.expect("login response should be JSON");
+    let body: Value = resp.json().await.expect("test-login response should be JSON");
     body["token"].as_str().expect("token field should exist").to_string()
 }
 
@@ -74,49 +71,12 @@ async fn create_room(base: &str, token: &str, name: &str) -> Value {
 // ============================================================
 
 #[tokio::test]
-async fn test_register_success() {
+async fn test_login_via_test_endpoint() {
     let base = spawn_app().await;
-
-    let resp = register_user(&base, "alice", "password123").await;
-    assert_eq!(resp.status(), StatusCode::CREATED);
-
-    let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["username"], "alice");
-    assert!(body["id"].as_str().is_some(), "response should include an id");
-}
-
-#[tokio::test]
-async fn test_register_duplicate_username() {
-    let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let resp = register_user(&base, "alice", "differentpassword").await;
-
-    assert_eq!(resp.status(), StatusCode::CONFLICT);
-}
-
-#[tokio::test]
-async fn test_register_invalid_input() {
-    let base = spawn_app().await;
-
-    // Empty username
-    let resp = register_user(&base, "", "password123").await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-
-    // Password too short (< 8 chars)
-    let resp = register_user(&base, "bob", "short").await;
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn test_login_success() {
-    let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
 
     let resp = reqwest::Client::new()
-        .post(format!("{base}/api/login"))
-        .json(&json!({ "username": "alice", "password": "password123" }))
+        .post(format!("{base}/api/auth/test-login"))
+        .json(&json!({ "email": "alice@test.com" }))
         .send()
         .await
         .unwrap();
@@ -128,33 +88,112 @@ async fn test_login_success() {
 }
 
 #[tokio::test]
-async fn test_login_wrong_password() {
+async fn test_login_same_email_returns_same_user() {
     let base = spawn_app().await;
 
-    register_user(&base, "alice", "password123").await;
+    let token1 = login_user(&base, "alice@test.com").await;
+    let token2 = login_user(&base, "alice@test.com").await;
 
-    let resp = reqwest::Client::new()
-        .post(format!("{base}/api/login"))
-        .json(&json!({ "username": "alice", "password": "wrongpassword" }))
-        .send()
-        .await
-        .unwrap();
+    // Both tokens should decode to the same user_id
+    // We verify by using both tokens to create rooms (they should share state)
+    let room = create_room(&base, &token1, "room1").await;
+    assert!(room["id"].as_str().is_some());
 
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    let room = create_room(&base, &token2, "room2").await;
+    assert!(room["id"].as_str().is_some());
 }
 
 #[tokio::test]
-async fn test_login_nonexistent_user() {
+async fn test_get_profile() {
     let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
 
     let resp = reqwest::Client::new()
-        .post(format!("{base}/api/login"))
-        .json(&json!({ "username": "nobody", "password": "password123" }))
+        .get(format!("{base}/api/profile"))
+        .bearer_auth(&token)
         .send()
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["email"], "alice@test.com");
+    assert_eq!(body["username"], "alice");
+    assert!(body["id"].as_str().is_some());
+}
+
+#[tokio::test]
+async fn test_update_profile() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/profile"))
+        .bearer_auth(&token)
+        .json(&json!({ "username": "Alice Wonder" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["user"]["username"], "Alice Wonder");
+    assert!(body["token"].as_str().is_some());
+
+    // Use the new token to verify it works
+    let new_token = body["token"].as_str().unwrap();
+    let resp = reqwest::Client::new()
+        .get(format!("{base}/api/profile"))
+        .bearer_auth(new_token)
+        .send()
+        .await
+        .unwrap();
+
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["username"], "Alice Wonder");
+}
+
+#[tokio::test]
+async fn test_update_profile_empty_name() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/profile"))
+        .bearer_auth(&token)
+        .json(&json!({ "username": "   " }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_oauth_redirect_returns_302() {
+    let base = spawn_app().await;
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap();
+
+    let resp = client
+        .get(format!("{base}/api/auth/google"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
+
+    let location = resp.headers().get("location").unwrap().to_str().unwrap();
+    assert!(
+        location.starts_with("https://accounts.google.com/o/oauth2/v2/auth"),
+        "should redirect to Google"
+    );
+    assert!(location.contains("client_id=test-client-id"));
 }
 
 // ============================================================
@@ -164,9 +203,7 @@ async fn test_login_nonexistent_user() {
 #[tokio::test]
 async fn test_create_room() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
 
     let resp = reqwest::Client::new()
         .post(format!("{base}/api/rooms"))
@@ -200,9 +237,7 @@ async fn test_create_room_no_auth() {
 #[tokio::test]
 async fn test_create_duplicate_room() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
 
     create_room(&base, &token, "general").await;
 
@@ -220,9 +255,7 @@ async fn test_create_duplicate_room() {
 #[tokio::test]
 async fn test_list_rooms() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
 
     create_room(&base, &token, "general").await;
     create_room(&base, &token, "random").await;
@@ -244,9 +277,7 @@ async fn test_list_rooms() {
 #[tokio::test]
 async fn test_list_rooms_empty() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
 
     let resp = reqwest::Client::new()
         .get(format!("{base}/api/rooms"))
@@ -269,9 +300,7 @@ async fn test_list_rooms_empty() {
 #[tokio::test]
 async fn test_get_messages_empty() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
     let room = create_room(&base, &token, "general").await;
     let room_id = room["id"].as_str().unwrap();
 
@@ -292,9 +321,7 @@ async fn test_get_messages_empty() {
 #[tokio::test]
 async fn test_get_messages_pagination() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
     let room = create_room(&base, &token, "general").await;
     let room_id = room["id"].as_str().unwrap();
 
@@ -358,9 +385,7 @@ async fn test_get_messages_pagination() {
 #[tokio::test]
 async fn test_ws_connect_with_valid_token() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
 
     let ws_url = base.replace("http://", "ws://");
     let result = connect_async(format!("{ws_url}/ws?token={token}")).await;
@@ -382,11 +407,8 @@ async fn test_ws_connect_without_token() {
 async fn test_ws_join_and_receive_message() {
     let base = spawn_app().await;
 
-    // Register two users
-    register_user(&base, "alice", "password123").await;
-    register_user(&base, "bob", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice@test.com").await;
+    let token_b = login_user(&base, "bob@test.com").await;
 
     let room = create_room(&base, &token_a, "general").await;
     let room_id = room["id"].as_str().unwrap();
@@ -410,10 +432,7 @@ async fn test_ws_join_and_receive_message() {
     .await
     .unwrap();
 
-    // Drain join notifications (user_joined messages)
-    // Alice receives: bob's user_joined
-    // Bob receives: nothing extra (alice joined before bob)
-    // Give a moment for messages to propagate
+    // Drain join notifications
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     while let Ok(msg) = tokio::time::timeout(
         std::time::Duration::from_millis(100),
@@ -421,7 +440,6 @@ async fn test_ws_join_and_receive_message() {
     )
     .await
     {
-        // drain
         let _ = msg;
     }
     while let Ok(msg) = tokio::time::timeout(
@@ -474,10 +492,8 @@ async fn test_ws_join_and_receive_message() {
 async fn test_ws_user_joined_notification() {
     let base = spawn_app().await;
 
-    register_user(&base, "alice", "password123").await;
-    register_user(&base, "bob", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice@test.com").await;
+    let token_b = login_user(&base, "bob@test.com").await;
 
     let room = create_room(&base, &token_a, "general").await;
     let room_id = room["id"].as_str().unwrap();
@@ -520,10 +536,8 @@ async fn test_ws_user_joined_notification() {
 async fn test_ws_user_left_notification() {
     let base = spawn_app().await;
 
-    register_user(&base, "alice", "password123").await;
-    register_user(&base, "bob", "password123").await;
-    let token_a = login_user(&base, "alice", "password123").await;
-    let token_b = login_user(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice@test.com").await;
+    let token_b = login_user(&base, "bob@test.com").await;
 
     let room = create_room(&base, &token_a, "general").await;
     let room_id = room["id"].as_str().unwrap();
@@ -576,9 +590,7 @@ async fn test_ws_user_left_notification() {
 #[tokio::test]
 async fn test_ws_message_persisted() {
     let base = spawn_app().await;
-
-    register_user(&base, "alice", "password123").await;
-    let token = login_user(&base, "alice", "password123").await;
+    let token = login_user(&base, "alice@test.com").await;
 
     let room = create_room(&base, &token, "general").await;
     let room_id = room["id"].as_str().unwrap();

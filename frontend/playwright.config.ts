@@ -25,7 +25,8 @@ export default defineConfig({
 			port: 3000,
 			reuseExistingServer: true,
 			env: {
-				DATABASE_URL: 'sqlite:/tmp/racquet-e2e.db?mode=rwc'
+				DATABASE_URL: 'sqlite:/tmp/racquet-e2e.db?mode=rwc',
+				RACQUET_TEST_MODE: 'true'
 			},
 			timeout: 120000
 		},

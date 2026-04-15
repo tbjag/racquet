@@ -2,27 +2,11 @@ import type { Page, APIRequestContext } from '@playwright/test';
 
 const API_URL = 'http://localhost:3000';
 
-export async function registerUser(
-	request: APIRequestContext,
-	username: string,
-	password: string
-): Promise<{ id: string; username: string }> {
-	const res = await request.post(`${API_URL}/api/register`, {
-		data: { username, password }
+export async function loginUser(request: APIRequestContext, email: string): Promise<string> {
+	const res = await request.post(`${API_URL}/api/auth/test-login`, {
+		data: { email }
 	});
-	if (!res.ok()) throw new Error(`Register failed: ${res.status()}`);
-	return res.json();
-}
-
-export async function loginUser(
-	request: APIRequestContext,
-	username: string,
-	password: string
-): Promise<string> {
-	const res = await request.post(`${API_URL}/api/login`, {
-		data: { username, password }
-	});
-	if (!res.ok()) throw new Error(`Login failed: ${res.status()}`);
+	if (!res.ok()) throw new Error(`Test login failed: ${res.status()}`);
 	const body = await res.json();
 	return body.token;
 }
@@ -40,22 +24,12 @@ export async function createRoom(
 	return res.json();
 }
 
-export async function loginViaUI(page: Page, username: string, password: string) {
-	await page.goto('/login');
-	await page.getByTestId('username-input').fill(username);
-	await page.getByTestId('password-input').fill(password);
-	await page.getByTestId('submit-button').click();
-	await page.waitForURL('/');
-}
-
 export async function setupAuthenticatedUser(
 	page: Page,
 	request: APIRequestContext
 ): Promise<{ username: string; token: string }> {
-	const username = `u${Math.random().toString(36).slice(2, 10)}`;
-	const password = 'testpassword123';
-	await registerUser(request, username, password);
-	const token = await loginUser(request, username, password);
+	const email = `test-${Math.random().toString(36).slice(2, 10)}@test.com`;
+	const token = await loginUser(request, email);
 
 	await page.goto('/');
 	await page.evaluate(
@@ -64,5 +38,7 @@ export async function setupAuthenticatedUser(
 	);
 	await page.goto('/');
 
+	// Username is derived from email prefix
+	const username = email.split('@')[0];
 	return { username, token };
 }

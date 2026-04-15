@@ -1,0 +1,4 @@
+# Add one email per line. Only these Google accounts can log in.
+# Lines starting with # are comments.
+alice@gmail.com
+bob@gmail.com

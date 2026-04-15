@@ -1,33 +1,30 @@
 const API_BASE = 'http://localhost:3000';
 
-export async function register(
-	username: string,
-	password: string
-): Promise<{ id: string; username: string }> {
-	const res = await fetch(`${API_BASE}/api/register`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ username, password })
+export async function getProfile(
+	token: string
+): Promise<{ id: string; email: string; username: string }> {
+	const res = await fetch(`${API_BASE}/api/profile`, {
+		headers: { Authorization: `Bearer ${token}` }
 	});
-	if (!res.ok) {
-		const body = await res.json().catch(() => ({ error: 'Registration failed' }));
-		throw new Error(body.error || 'Registration failed');
-	}
+	if (!res.ok) throw new Error('Failed to fetch profile');
 	return res.json();
 }
 
-export async function login(
-	username: string,
-	password: string
-): Promise<{ token: string }> {
-	const res = await fetch(`${API_BASE}/api/login`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ username, password })
+export async function updateProfile(
+	token: string,
+	username: string
+): Promise<{ token: string; user: { id: string; email: string; username: string } }> {
+	const res = await fetch(`${API_BASE}/api/profile`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ username })
 	});
 	if (!res.ok) {
-		const body = await res.json().catch(() => ({ error: 'Invalid credentials' }));
-		throw new Error(body.error || 'Invalid credentials');
+		const body = await res.json().catch(() => ({ error: 'Failed to update profile' }));
+		throw new Error(body.error || 'Failed to update profile');
 	}
 	return res.json();
 }

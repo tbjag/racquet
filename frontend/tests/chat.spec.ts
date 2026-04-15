@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupAuthenticatedUser, registerUser, loginUser, createRoom } from './helpers';
+import { setupAuthenticatedUser, loginUser, createRoom } from './helpers';
 
 const rnd = () => Math.random().toString(36).slice(2, 8);
 
@@ -70,15 +70,13 @@ test.describe('Chat messages', () => {
 	});
 
 	test('two users see messages in real time', async ({ browser, request }) => {
-		const usernameA = `a${rnd()}`;
-		const passwordA = 'testpassword123';
-		await registerUser(request, usernameA, passwordA);
-		const tokenA = await loginUser(request, usernameA, passwordA);
+		const emailA = `a${rnd()}@test.com`;
+		const usernameA = emailA.split('@')[0];
+		const tokenA = await loginUser(request, emailA);
 
-		const usernameB = `b${rnd()}`;
-		const passwordB = 'testpassword123';
-		await registerUser(request, usernameB, passwordB);
-		const tokenB = await loginUser(request, usernameB, passwordB);
+		const emailB = `b${rnd()}@test.com`;
+		const usernameB = emailB.split('@')[0];
+		const tokenB = await loginUser(request, emailB);
 
 		const roomName = `rm${rnd()}`;
 		await createRoom(request, tokenA, roomName);

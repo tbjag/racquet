@@ -99,6 +99,20 @@ async fn handle_text_message(
                     .cm
                     .join_room(room_id, user_id, username, sender.clone())
                     .await;
+
+                // Send room_users to the joining user
+                let users = state.cm.get_room_users(room_id).await;
+                let user_list: Vec<_> = users
+                    .iter()
+                    .filter(|(id, _)| id != user_id)
+                    .map(|(id, name)| serde_json::json!({"user_id": id, "username": name}))
+                    .collect();
+                let response = serde_json::json!({
+                    "type": "room_users",
+                    "room_id": room_id,
+                    "users": user_list,
+                });
+                let _ = sender.send(Message::Text(response.to_string().into()));
             }
         }
         "leave_room" => {
@@ -146,6 +160,33 @@ async fn handle_text_message(
                 .cm
                 .broadcast_to_room(room_id, &broadcast.to_string())
                 .await;
+        }
+        "offer" | "answer" | "ice_candidate" => {
+            let target = match parsed["target_user_id"].as_str() {
+                Some(t) => t,
+                None => return,
+            };
+            let room_id = match parsed["room_id"].as_str() {
+                Some(r) => r,
+                None => return,
+            };
+            let mut relay = parsed.clone();
+            relay["from_user_id"] = serde_json::json!(user_id);
+            relay["from_username"] = serde_json::json!(username);
+            tracing::debug!(msg_type = %msg_type, from = %user_id, to = %target, room_id = %room_id, "relaying signaling message");
+            state.cm.send_to_user(target, &relay.to_string()).await;
+        }
+        "call_join" | "call_leave" => {
+            if let Some(room_id) = parsed["room_id"].as_str() {
+                let notification = serde_json::json!({
+                    "type": msg_type,
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "username": username,
+                });
+                tracing::info!(msg_type = %msg_type, user_id = %user_id, room_id = %room_id, "call event");
+                state.cm.broadcast_to_room(room_id, &notification.to_string()).await;
+            }
         }
         _ => {
             tracing::debug!(msg_type = %msg_type, "unknown message type received");

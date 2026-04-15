@@ -1,69 +1,67 @@
 import { test, expect } from '@playwright/test';
-import { registerUser } from './helpers';
+import { loginUser, setupAuthenticatedUser } from './helpers';
 
-test.describe('Registration', () => {
-	test('register page renders with form fields', async ({ page }) => {
-		await page.goto('/register');
-		await expect(page.getByTestId('username-input')).toBeVisible();
-		await expect(page.getByTestId('password-input')).toBeVisible();
-		await expect(page.getByTestId('submit-button')).toBeVisible();
+test.describe('Login', () => {
+	test('login page shows Google sign-in button', async ({ page }) => {
+		await page.goto('/login');
+		await expect(page.getByTestId('google-login-button')).toBeVisible();
+		await expect(page.getByTestId('google-login-button')).toContainText('Sign in with Google');
 	});
 
-	test('successful registration redirects to login', async ({ page }) => {
-		await page.goto('/register');
-		const username = `r${Math.random().toString(36).slice(2, 10)}`;
-		await page.getByTestId('username-input').fill(username);
-		await page.getByTestId('password-input').fill('testpassword123');
-		await page.getByTestId('submit-button').click();
-		await expect(page).toHaveURL('/login');
-	});
-
-	test('duplicate username shows error', async ({ page, request }) => {
-		const username = `d${Math.random().toString(36).slice(2, 10)}`;
-		await registerUser(request, username, 'testpassword123');
-
-		await page.goto('/register');
-		await page.getByTestId('username-input').fill(username);
-		await page.getByTestId('password-input').fill('testpassword123');
-		await page.getByTestId('submit-button').click();
-
+	test('login page shows error for unauthorized account', async ({ page }) => {
+		await page.goto('/login?error=not_allowed');
 		await expect(page.getByTestId('error-message')).toBeVisible();
+		await expect(page.getByTestId('error-message')).toContainText('not authorized');
+	});
+
+	test('login page shows error for oauth failure', async ({ page }) => {
+		await page.goto('/login?error=oauth_error');
+		await expect(page.getByTestId('error-message')).toBeVisible();
+		await expect(page.getByTestId('error-message')).toContainText('failed');
 	});
 });
 
-test.describe('Login', () => {
-	test('login page renders with form fields', async ({ page }) => {
-		await page.goto('/login');
-		await expect(page.getByTestId('username-input')).toBeVisible();
-		await expect(page.getByTestId('password-input')).toBeVisible();
-		await expect(page.getByTestId('submit-button')).toBeVisible();
-	});
+test.describe('Auth callback', () => {
+	test('stores token and redirects to /', async ({ page, request }) => {
+		const token = await loginUser(request, 'callback-test@test.com');
 
-	test('successful login redirects to app', async ({ page, request }) => {
-		const username = `l${Math.random().toString(36).slice(2, 10)}`;
-		await registerUser(request, username, 'testpassword123');
-
-		await page.goto('/login');
-		await page.getByTestId('username-input').fill(username);
-		await page.getByTestId('password-input').fill('testpassword123');
-		await page.getByTestId('submit-button').click();
-
+		await page.goto(`/auth/callback?token=${token}`);
 		await expect(page).toHaveURL('/');
+
+		const storedToken = await page.evaluate(() => localStorage.getItem('racquet_token'));
+		expect(storedToken).toBe(token);
 	});
 
-	test('wrong credentials shows error', async ({ page }) => {
-		await page.goto('/login');
-		await page.getByTestId('username-input').fill('nonexistent');
-		await page.getByTestId('password-input').fill('wrongpassword1');
-		await page.getByTestId('submit-button').click();
-
-		await expect(page.getByTestId('error-message')).toBeVisible();
+	test('redirects to login without token', async ({ page }) => {
+		await page.goto('/auth/callback');
+		await expect(page).toHaveURL('/login');
 	});
 });
 
 test.describe('Auth guard', () => {
 	test('unauthenticated user is redirected to login', async ({ page }) => {
 		await page.goto('/');
+		await expect(page).toHaveURL('/login');
+	});
+});
+
+test.describe('Profile', () => {
+	test('profile shows username after login', async ({ page, request }) => {
+		const { username } = await setupAuthenticatedUser(page, request);
+		await expect(page.getByTestId('display-name')).toContainText(username);
+	});
+
+	test('user can update display name', async ({ page, request }) => {
+		await setupAuthenticatedUser(page, request);
+		await page.getByTestId('edit-name-button').click();
+		await page.getByTestId('display-name-input').fill('New Name');
+		await page.getByTestId('save-name-button').click();
+		await expect(page.getByTestId('display-name')).toContainText('New Name');
+	});
+
+	test('logout redirects to login', async ({ page, request }) => {
+		await setupAuthenticatedUser(page, request);
+		await page.getByTestId('logout-button').click();
 		await expect(page).toHaveURL('/login');
 	});
 });
