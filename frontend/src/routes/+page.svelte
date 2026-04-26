@@ -6,6 +6,7 @@
 	import { setToken, clearToken } from '$lib/auth';
 	import { WebSocketClient } from '$lib/ws';
 	import { WebRTCManager } from '$lib/webrtc';
+	import { apiCall } from '$lib/apiCall';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
 	type Message = {
@@ -29,6 +30,7 @@
 	let displayName = $state('');
 	let editingName = $state(false);
 	let editNameValue = $state('');
+	let ownUserId = $state<string>('');
 
 	// WebRTC state
 	let inCall = $state(false);
@@ -38,6 +40,11 @@
 	let audioMuted = $state(false);
 	let videoMuted = $state(false);
 	let roomUsers = $state<Map<string, string>>(new Map()); // userId -> username
+
+	// Screen share state
+	let localScreenStream = $state<MediaStream | null>(null);
+	let activeScreenSharerId = $state<string | null>(null);
+	let remoteScreenStream = $state<{ userId: string; username: string; stream: MediaStream } | null>(null);
 
 	onMount(async () => {
 		token = getToken();
@@ -50,8 +57,13 @@
 		ws.connect(token);
 		ws.onMessage(handleWsMessage);
 
-		const profile = await getProfile(token);
-		displayName = profile.username;
+		const profile = await apiCall(() => getProfile(token!), {
+			errorMessage: 'Could not load your profile'
+		});
+		if (profile) {
+			displayName = profile.username;
+			ownUserId = profile.id;
+		}
 
 		await loadRooms();
 	});
@@ -89,12 +101,29 @@
 			if (inCall && webrtcManager) {
 				webrtcManager.removePeer(msg.from_user_id);
 			}
+		} else if (msg.type === 'screen_share_started' && msg.room_id === selectedRoomId) {
+			activeScreenSharerId = msg.user_id;
+			if (msg.user_id !== ownUserId) {
+				webrtcManager?.registerRemoteScreenStreamId(msg.stream_id);
+			}
+		} else if (msg.type === 'screen_share_stopped' && msg.room_id === selectedRoomId) {
+			activeScreenSharerId = null;
+			if (remoteScreenStream && remoteScreenStream.userId === msg.user_id) {
+				webrtcManager?.unregisterRemoteScreenStreamId(remoteScreenStream.stream.id);
+				remoteScreenStream = null;
+			}
+			if (msg.user_id === ownUserId) {
+				localScreenStream = null;
+			}
 		}
 	}
 
 	async function loadRooms() {
 		if (!token) return;
-		rooms = await getRooms(token);
+		const result = await apiCall(() => getRooms(token!), {
+			errorMessage: 'Could not load rooms'
+		});
+		if (result) rooms = result;
 	}
 
 	async function selectRoom(roomId: string) {
@@ -111,15 +140,20 @@
 		roomUsers = new Map();
 		ws.joinRoom(roomId);
 
-		const history = await getMessages(token, roomId);
-		messages = history.reverse();
+		const history = await apiCall(() => getMessages(token!, roomId), {
+			errorMessage: 'Could not load message history'
+		});
+		messages = history ? history.reverse() : [];
 	}
 
 	async function handleCreateRoom(e: Event) {
 		e.preventDefault();
 		if (!token || !newRoomName.trim()) return;
 
-		await createRoom(token, newRoomName.trim());
+		const created = await apiCall(() => createRoom(token!, newRoomName.trim()), {
+			errorMessage: 'Could not create room'
+		});
+		if (!created) return;
 		newRoomName = '';
 		showCreateForm = false;
 		await loadRooms();
@@ -137,7 +171,10 @@
 		e.preventDefault();
 		if (!token || !editNameValue.trim()) return;
 
-		const result = await updateProfile(token, editNameValue.trim());
+		const result = await apiCall(() => updateProfile(token!, editNameValue.trim()), {
+			errorMessage: 'Could not update name'
+		});
+		if (!result) return;
 		token = result.token;
 		setToken(result.token);
 		displayName = result.user.username;
@@ -179,6 +216,13 @@
 				const updated = new Map(remoteStreams);
 				updated.delete(userId);
 				remoteStreams = updated;
+			},
+			(userId, username, stream) => {
+				remoteScreenStream = { userId, username, stream };
+			},
+			() => {
+				// Browser's own "Stop sharing" bar ended the share
+				stopScreenShareLocal();
 			}
 		);
 
@@ -196,15 +240,45 @@
 	}
 
 	function leaveCall() {
+		// If we're sharing, tell the server before tearing down
+		if (localScreenStream && ws && selectedRoomId) {
+			ws.sendScreenShareStop(selectedRoomId);
+		}
 		if (webrtcManager) {
 			webrtcManager.leaveCall();
 			webrtcManager = null;
 		}
 		localStream = null;
 		remoteStreams = new Map();
+		localScreenStream = null;
+		remoteScreenStream = null;
 		inCall = false;
 		audioMuted = false;
 		videoMuted = false;
+	}
+
+	async function toggleScreenShare() {
+		if (!webrtcManager || !ws || !selectedRoomId) return;
+
+		if (localScreenStream) {
+			await stopScreenShareLocal();
+			return;
+		}
+
+		const stream = await webrtcManager.acquireScreenStream();
+		if (!stream) return; // user cancelled or capture failed
+		// Notify peers BEFORE renegotiating so receivers can classify the
+		// incoming screen tracks (stream id known) when ontrack fires.
+		ws.sendScreenShareStart(selectedRoomId, stream.id);
+		localScreenStream = stream;
+		await webrtcManager.broadcastScreenStream();
+	}
+
+	async function stopScreenShareLocal() {
+		if (!webrtcManager || !ws || !selectedRoomId) return;
+		ws.sendScreenShareStop(selectedRoomId);
+		localScreenStream = null;
+		await webrtcManager.stopScreenShare();
 	}
 
 	function toggleMute() {
@@ -305,13 +379,33 @@
 						<button data-testid="video-toggle-button" onclick={toggleVideo}>
 							{videoMuted ? 'Video On' : 'Video Off'}
 						</button>
+						<button
+							data-testid="screen-share-button"
+							onclick={toggleScreenShare}
+							disabled={activeScreenSharerId !== null && activeScreenSharerId !== ownUserId}
+						>
+							{localScreenStream ? 'Stop Sharing' : 'Share Screen'}
+						</button>
 					{/if}
 				</div>
+
+				{#if inCall && (localScreenStream || remoteScreenStream)}
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video
+						data-testid="screen-share-tile"
+						class="screen-share-tile"
+						autoplay
+						muted={!!localScreenStream}
+						playsinline
+						use:setStream={(localScreenStream ?? remoteScreenStream!.stream)}
+					></video>
+				{/if}
 
 				{#if inCall && localStream}
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video
 						data-testid="local-video"
+						class={localScreenStream || remoteScreenStream ? 'camera-strip' : ''}
 						autoplay
 						muted
 						playsinline
@@ -320,7 +414,10 @@
 				{/if}
 
 				{#if inCall && remoteStreams.size > 0}
-					<div data-testid="remote-streams" class="remote-streams">
+					<div
+						data-testid="remote-streams"
+						class={'remote-streams ' + (localScreenStream || remoteScreenStream ? 'camera-strip' : '')}
+					>
 						{#each [...remoteStreams.entries()] as [userId, { username, stream }]}
 							<!-- svelte-ignore a11y_media_has_caption -->
 							<video

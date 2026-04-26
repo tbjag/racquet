@@ -5,6 +5,7 @@
 	import favicon from '$lib/assets/favicon.svg';
 	import { theme } from '$lib/stores/theme.svelte';
 	import ThemeToggle from '$lib/components/chrome/ThemeToggle.svelte';
+	import ToastHost from '$lib/components/chrome/ToastHost.svelte';
 	import '../app.css';
 
 	let { children } = $props();
@@ -35,6 +36,8 @@
 </div>
 
 {@render children()}
+
+<ToastHost />
 
 <style>
 	.theme-toggle-fixed {
