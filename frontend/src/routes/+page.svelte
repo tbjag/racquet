@@ -7,6 +7,9 @@
 	import { WebSocketClient } from '$lib/ws';
 	import { WebRTCManager } from '$lib/webrtc';
 	import { apiCall } from '$lib/apiCall';
+	import UserProfile from '$lib/components/sidebar/UserProfile.svelte';
+	import RoomList from '$lib/components/sidebar/RoomList.svelte';
+	import CreateRoomForm from '$lib/components/sidebar/CreateRoomForm.svelte';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
 	type Message = {
@@ -24,12 +27,9 @@
 	let messages = $state<Message[]>([]);
 	let messageInput = $state('');
 	let showCreateForm = $state(false);
-	let newRoomName = $state('');
 	let ws: WebSocketClient | null = null;
 	let currentRoomId: string | null = null;
 	let displayName = $state('');
-	let editingName = $state(false);
-	let editNameValue = $state('');
 	let ownUserId = $state<string>('');
 
 	// WebRTC state
@@ -146,17 +146,15 @@
 		messages = history ? history.reverse() : [];
 	}
 
-	async function handleCreateRoom(e: Event) {
-		e.preventDefault();
-		if (!token || !newRoomName.trim()) return;
-
-		const created = await apiCall(() => createRoom(token!, newRoomName.trim()), {
+	async function handleCreateRoom(name: string): Promise<boolean> {
+		if (!token) return false;
+		const created = await apiCall(() => createRoom(token!, name), {
 			errorMessage: 'Could not create room'
 		});
-		if (!created) return;
-		newRoomName = '';
+		if (!created) return false;
 		showCreateForm = false;
 		await loadRooms();
+		return true;
 	}
 
 	function handleSendMessage(e: Event) {
@@ -167,18 +165,15 @@
 		messageInput = '';
 	}
 
-	async function handleSaveName(e: Event) {
-		e.preventDefault();
-		if (!token || !editNameValue.trim()) return;
-
-		const result = await apiCall(() => updateProfile(token!, editNameValue.trim()), {
+	async function handleSaveName(newName: string): Promise<boolean> {
+		if (!token) return false;
+		const result = await apiCall(() => updateProfile(token!, newName), {
 			errorMessage: 'Could not update name'
 		});
-		if (!result) return;
+		if (!result) return false;
 		token = result.token;
 		setToken(result.token);
 		displayName = result.user.username;
-		editingName = false;
 
 		// Reconnect WebSocket with new token so messages use the new name
 		ws?.disconnect();
@@ -188,6 +183,7 @@
 		if (currentRoomId) {
 			ws.joinRoom(currentRoomId);
 		}
+		return true;
 	}
 
 	function handleLogout() {
@@ -312,24 +308,7 @@
 
 <div class="app">
 	<aside class="sidebar">
-		<div data-testid="user-profile" class="user-profile">
-			{#if editingName}
-				<form onsubmit={handleSaveName} class="edit-name-form">
-					<input
-						data-testid="display-name-input"
-						type="text"
-						bind:value={editNameValue}
-						maxlength={30}
-					/>
-					<button data-testid="save-name-button" type="submit">Save</button>
-					<button type="button" onclick={() => (editingName = false)}>Cancel</button>
-				</form>
-			{:else}
-				<span data-testid="display-name">{displayName}</span>
-				<button data-testid="edit-name-button" onclick={() => { editNameValue = displayName; editingName = true; }}>Edit</button>
-			{/if}
-			<button data-testid="logout-button" onclick={handleLogout}>Logout</button>
-		</div>
+		<UserProfile {displayName} onSave={handleSaveName} onLogout={handleLogout} />
 
 		<div class="sidebar-header">
 			<h2>Rooms</h2>
@@ -337,32 +316,10 @@
 		</div>
 
 		{#if showCreateForm}
-			<form onsubmit={handleCreateRoom} class="create-room-form">
-				<input
-					data-testid="room-name-input"
-					type="text"
-					placeholder="Room name"
-					bind:value={newRoomName}
-				/>
-				<button data-testid="room-submit-button" type="submit">Create</button>
-			</form>
+			<CreateRoomForm onSubmit={handleCreateRoom} />
 		{/if}
 
-		<div data-testid="room-list">
-			{#if rooms.length === 0}
-				<p data-testid="no-rooms-placeholder">No rooms yet</p>
-			{:else}
-				{#each rooms as room}
-					<button
-						data-testid="room-item"
-						class="room-item {selectedRoomId === room.id ? 'active' : ''}"
-						onclick={() => selectRoom(room.id)}
-					>
-						{room.name}
-					</button>
-				{/each}
-			{/if}
-		</div>
+		<RoomList {rooms} {selectedRoomId} onSelect={selectRoom} />
 	</aside>
 
 	<main class="content">

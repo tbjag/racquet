@@ -180,10 +180,10 @@ Working plan: `/home/tbjag/.claude/plans/ok-i-now-want-atomic-moth.md`. Goal: tu
 
 1. **Theme infrastructure** (`5b7453d`) — `frontend/src/app.css` with CSS custom properties for both `[data-theme='light']` and `[data-theme='dark']`; `frontend/src/lib/stores/theme.svelte.ts` (rune store, tri-state `mode: 'light'|'dark'|'system'` persisted to `localStorage.racquet_theme`); `frontend/src/lib/components/chrome/ThemeToggle.svelte`; FOUC mitigation via inline `<script>` in `frontend/src/app.html` that sets `documentElement.dataset.theme` synchronously on first paint. 5 Playwright tests in `frontend/tests/theme.spec.ts`.
 2. **Toast + apiCall** (`fe57957`) — `frontend/src/lib/stores/toast.svelte.ts` (rune array + `pushToast`/`dismiss`); `frontend/src/lib/components/chrome/ToastHost.svelte` (fixed bottom-right, click to dismiss, `aria-live='polite'`); `frontend/src/lib/apiCall.ts` (wraps a promise, toasts on throw, returns `null`). All API calls in `+page.svelte` now go through `apiCall` with human-readable error messages. Error TTL 8000ms, info/success 5000ms. 4 Playwright tests in `frontend/tests/errors.spec.ts`.
+3. **Sidebar extraction** — `frontend/src/lib/components/sidebar/{UserProfile,RoomList,CreateRoomForm}.svelte`. `CreateRoomForm` owns its own input state + `submitting` flag and disables both input and button during the in-flight POST (button text flips to `Creating…`). Submit also disabled when name is empty/whitespace. `+page.svelte`'s `handleCreateRoom` and `handleSaveName` were reshaped to take a `name` arg and return `Promise<boolean>` so the children can react to success/failure. All existing `data-testid` selectors preserved for regression coverage. 2 Playwright tests in `frontend/tests/loading.spec.ts` (43 total now).
 
 ### Remaining commits (planned)
 
-3. Sidebar component extraction (`UserProfile`, `RoomList`, `CreateRoomForm`) + loading/disabled state on `CreateRoomForm` + `frontend/tests/loading.spec.ts`.
 4. Chat extraction (`MessageList` with auto-scroll-to-bottom respecting user scroll, `MessageInput`, `RoomHeader`).
 5. Call extraction (`CallControls`, `VideoTile`, `CallStage`). Consider switching `remoteStreams` Map → Array for cleaner `{#each}`.
 6. Member list UI (`MemberList.svelte`) + `frontend/tests/members.spec.ts` — `roomUsers` is already populated, just never rendered.
@@ -191,13 +191,9 @@ Working plan: `/home/tbjag/.claude/plans/ok-i-now-want-atomic-moth.md`. Goal: tu
 8. Visual styling pass — populate scoped `<style>` blocks per component using CSS variables. Order: sidebar → chat → call stage → auth pages. Cap scope.
 9. Polish — focus rings, hover/transition states, empty states, scrollbar styling, dark contrast verification.
 
-### Current blocker (commit 3)
+### Resolved: commit-3 test-discovery blocker
 
-After committing 1 and 2 cleanly (all 41 Playwright tests green), test discovery began failing with `Playwright Test did not expect test.describe() to be called here` for **every** spec file (auth, chat, theme, etc.), including specs that hadn't been touched. The error appeared during `npx playwright test --list` and persisted after removing the new `tests/loading.spec.ts`. No duplicate `@playwright/test` in `node_modules`. The Vite/Cargo `webServer` processes were not stuck (`ps` clean).
-
-Suspected causes (not yet verified): stale Playwright transformer cache, an interaction between the new `.svelte.ts` rune modules and Playwright's TS loader, or a lingering Vite dev server from the previous run. Next step on resume: try `rm -rf frontend/test-results frontend/.svelte-kit` and a fresh `npx playwright test --list` from a clean shell, then bisect by re-introducing files one at a time.
-
-The `loading.spec.ts` draft was moved to `/tmp/loading.spec.ts` during diagnosis.
+Between commits 2 and 3, `npx playwright test --list` started failing with `Playwright Test did not expect test.describe() to be called here` across every spec — turned out to be a stale Playwright transformer / SvelteKit cache. Recovery: `rm -rf frontend/test-results frontend/.svelte-kit` then re-run. If it recurs, also kill any orphaned Vite/Cargo `webServer` processes.
 
 ### Conventions established this phase
 
