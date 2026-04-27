@@ -147,6 +147,67 @@ async fn handle_text_message(
                 .broadcast_to_room(room_id, &broadcast.to_string())
                 .await;
         }
+        "screen_share_start" => {
+            let room_id = match parsed["room_id"].as_str() {
+                Some(id) => id,
+                None => {
+                    let _ = sender.send(Message::Text(
+                        serde_json::json!({ "type": "error", "message": "missing room_id" }).to_string().into(),
+                    ));
+                    return;
+                }
+            };
+            let stream_id = match parsed["payload"]["stream_id"].as_str() {
+                Some(s) => s,
+                None => {
+                    let _ = sender.send(Message::Text(
+                        serde_json::json!({ "type": "error", "message": "missing payload.stream_id" }).to_string().into(),
+                    ));
+                    return;
+                }
+            };
+
+            let acquired = state.cm.try_acquire_screen_share(room_id, user_id).await;
+            if !acquired {
+                let _ = sender.send(Message::Text(
+                    serde_json::json!({
+                        "type": "error",
+                        "message": "another user is already sharing their screen in this room"
+                    }).to_string().into(),
+                ));
+                return;
+            }
+
+            let broadcast = serde_json::json!({
+                "type": "screen_share_started",
+                "room_id": room_id,
+                "user_id": user_id,
+                "username": username,
+                "stream_id": stream_id,
+            });
+            state.cm.broadcast_to_room(room_id, &broadcast.to_string()).await;
+        }
+        "screen_share_stop" => {
+            let room_id = match parsed["room_id"].as_str() {
+                Some(id) => id,
+                None => {
+                    let _ = sender.send(Message::Text(
+                        serde_json::json!({ "type": "error", "message": "missing room_id" }).to_string().into(),
+                    ));
+                    return;
+                }
+            };
+
+            let released = state.cm.release_screen_share(room_id, user_id).await;
+            if released {
+                let broadcast = serde_json::json!({
+                    "type": "screen_share_stopped",
+                    "room_id": room_id,
+                    "user_id": user_id,
+                });
+                state.cm.broadcast_to_room(room_id, &broadcast.to_string()).await;
+            }
+        }
         "offer" | "answer" | "ice_candidate" | "call_leave" => {
             let room_id = match parsed["room_id"].as_str() {
                 Some(id) => id,

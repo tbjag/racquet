@@ -64,6 +64,18 @@ export class WebSocketClient {
 		this.send({ type: 'call_leave', room_id: roomId, target_user_id: targetUserId, payload: {} });
 	}
 
+	sendScreenShareStart(roomId: string, streamId: string): void {
+		this.send({
+			type: 'screen_share_start',
+			room_id: roomId,
+			payload: { stream_id: streamId }
+		});
+	}
+
+	sendScreenShareStop(roomId: string): void {
+		this.send({ type: 'screen_share_stop', room_id: roomId, payload: {} });
+	}
+
 	private send(data: any): void {
 		if (this.ws?.readyState === WebSocket.OPEN) {
 			this.ws.send(JSON.stringify(data));

@@ -6,23 +6,33 @@ const RTC_CONFIG: RTCConfiguration = {
 
 export class WebRTCManager {
 	private localStream: MediaStream | null = null;
+	private screenStream: MediaStream | null = null;
 	private peers: Map<string, RTCPeerConnection> = new Map();
 	private pendingCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
+	// Stream IDs the receiver has been told are screen shares (via screen_share_started).
+	// Populated before the renegotiation offer arrives so ontrack can classify them.
+	private remoteScreenStreamIds: Set<string> = new Set();
 	private ws: WebSocketClient;
 	private roomId: string;
 	private onRemoteStream: (userId: string, username: string, stream: MediaStream) => void;
 	private onPeerDisconnected: (userId: string) => void;
+	private onRemoteScreenStream?: (userId: string, username: string, stream: MediaStream) => void;
+	private onScreenShareEnded?: () => void;
 
 	constructor(
 		ws: WebSocketClient,
 		roomId: string,
 		onRemoteStream: (userId: string, username: string, stream: MediaStream) => void,
-		onPeerDisconnected: (userId: string) => void
+		onPeerDisconnected: (userId: string) => void,
+		onRemoteScreenStream?: (userId: string, username: string, stream: MediaStream) => void,
+		onScreenShareEnded?: () => void
 	) {
 		this.ws = ws;
 		this.roomId = roomId;
 		this.onRemoteStream = onRemoteStream;
 		this.onPeerDisconnected = onPeerDisconnected;
+		this.onRemoteScreenStream = onRemoteScreenStream;
+		this.onScreenShareEnded = onScreenShareEnded;
 	}
 
 	async joinCall(): Promise<MediaStream | null> {
@@ -52,6 +62,72 @@ export class WebRTCManager {
 		return this.localStream;
 	}
 
+	getScreenStream(): MediaStream | null {
+		return this.screenStream;
+	}
+
+	registerRemoteScreenStreamId(streamId: string): void {
+		this.remoteScreenStreamIds.add(streamId);
+	}
+
+	unregisterRemoteScreenStreamId(streamId: string): void {
+		this.remoteScreenStreamIds.delete(streamId);
+	}
+
+	/// Acquires a display-media stream but does not yet add it to peers.
+	/// Caller should send screen_share_start (so receivers know the stream id)
+	/// then call broadcastScreenStream() to renegotiate.
+	async acquireScreenStream(): Promise<MediaStream | null> {
+		try {
+			this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+				video: true,
+				audio: true
+			});
+		} catch {
+			this.screenStream = null;
+			return null;
+		}
+
+		// User-initiated stop (browser's "Stop sharing" bar) ends the video track.
+		const videoTrack = this.screenStream.getVideoTracks()[0];
+		if (videoTrack) {
+			videoTrack.onended = () => {
+				if (this.onScreenShareEnded) this.onScreenShareEnded();
+			};
+		}
+
+		return this.screenStream;
+	}
+
+	async broadcastScreenStream(): Promise<void> {
+		if (!this.screenStream) return;
+		for (const [userId, pc] of this.peers) {
+			for (const track of this.screenStream.getTracks()) {
+				pc.addTrack(track, this.screenStream);
+			}
+			await this.renegotiate(userId, pc);
+		}
+	}
+
+	async stopScreenShare(): Promise<void> {
+		if (!this.screenStream) return;
+
+		const screenTracks = this.screenStream.getTracks();
+		for (const [userId, pc] of this.peers) {
+			for (const sender of pc.getSenders()) {
+				if (sender.track && screenTracks.includes(sender.track)) {
+					pc.removeTrack(sender);
+				}
+			}
+			await this.renegotiate(userId, pc);
+		}
+
+		for (const track of screenTracks) {
+			track.stop();
+		}
+		this.screenStream = null;
+	}
+
 	async handlePeersInRoom(users: Array<{ userId: string; username: string }>): Promise<void> {
 		for (const user of users) {
 			await this.createPeerAndOffer(user.userId, user.username);
@@ -67,13 +143,25 @@ export class WebRTCManager {
 		this.ws.sendOffer(this.roomId, targetUserId, pc.localDescription!.toJSON());
 	}
 
+	private async renegotiate(targetUserId: string, pc: RTCPeerConnection): Promise<void> {
+		const offer = await pc.createOffer();
+		await pc.setLocalDescription(offer);
+		this.ws.sendOffer(this.roomId, targetUserId, pc.localDescription!.toJSON());
+	}
+
 	async handleOffer(
 		fromUserId: string,
 		fromUsername: string,
 		payload: RTCSessionDescriptionInit
 	): Promise<void> {
-		const pc = this.createPeerConnection(fromUserId, fromUsername);
-		this.peers.set(fromUserId, pc);
+		// Reuse the existing peer connection if one already exists — re-offers
+		// from renegotiation (e.g. starting a screen share) arrive on the same
+		// fromUserId and must not blow away the active camera/audio tracks.
+		let pc = this.peers.get(fromUserId);
+		if (!pc) {
+			pc = this.createPeerConnection(fromUserId, fromUsername);
+			this.peers.set(fromUserId, pc);
+		}
 
 		await pc.setRemoteDescription(new RTCSessionDescription(payload));
 		this.flushPendingCandidates(fromUserId, pc);
@@ -124,12 +212,19 @@ export class WebRTCManager {
 		}
 		this.peers.clear();
 		this.pendingCandidates.clear();
+		this.remoteScreenStreamIds.clear();
 
 		if (this.localStream) {
 			for (const track of this.localStream.getTracks()) {
 				track.stop();
 			}
 			this.localStream = null;
+		}
+		if (this.screenStream) {
+			for (const track of this.screenStream.getTracks()) {
+				track.stop();
+			}
+			this.screenStream = null;
 		}
 	}
 
@@ -142,6 +237,12 @@ export class WebRTCManager {
 				pc.addTrack(track, this.localStream);
 			}
 		}
+		// Late-joining peers should also receive the screen if a share is active
+		if (this.screenStream) {
+			for (const track of this.screenStream.getTracks()) {
+				pc.addTrack(track, this.screenStream);
+			}
+		}
 
 		// Send ICE candidates to remote peer
 		pc.onicecandidate = (event) => {
@@ -150,20 +251,23 @@ export class WebRTCManager {
 			}
 		};
 
-		// Handle incoming remote tracks
+		// Handle incoming remote tracks — classify as screen vs camera by stream id.
 		pc.ontrack = (event) => {
-			if (event.streams[0]) {
-				this.onRemoteStream(remoteUserId, remoteUsername, event.streams[0]);
+			const stream = event.streams[0];
+			if (!stream) return;
+			if (this.remoteScreenStreamIds.has(stream.id)) {
+				if (this.onRemoteScreenStream) {
+					this.onRemoteScreenStream(remoteUserId, remoteUsername, stream);
+				}
+			} else {
+				this.onRemoteStream(remoteUserId, remoteUsername, stream);
 			}
 		};
 
-		// Handle connection state changes
+		// Handle terminal connection states only. "disconnected" is transient
+		// (can recover) and renegotiation may flap through it briefly.
 		pc.onconnectionstatechange = () => {
-			if (
-				pc.connectionState === 'failed' ||
-				pc.connectionState === 'disconnected' ||
-				pc.connectionState === 'closed'
-			) {
+			if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
 				this.peers.delete(remoteUserId);
 				this.pendingCandidates.delete(remoteUserId);
 				this.onPeerDisconnected(remoteUserId);

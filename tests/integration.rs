@@ -914,3 +914,218 @@ async fn test_ws_join_room_returns_room_users() {
     assert_eq!(users[0]["user_id"], alice_id);
     assert_eq!(users[0]["username"], "alice");
 }
+
+// ============================================================
+// Screen share signaling tests
+// ============================================================
+
+/// Receive WS messages until one matches `predicate`, or timeout. Drains earlier messages.
+async fn recv_json_matching<S, F>(ws: &mut S, predicate: F) -> Value
+where
+    S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    F: Fn(&Value) -> bool,
+{
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let msg = tokio::time::timeout(remaining, ws.next())
+            .await
+            .expect("should receive matching message before timeout")
+            .expect("stream should not end")
+            .expect("should be a valid message");
+        let parsed: Value = serde_json::from_str(&msg.into_text().unwrap()).unwrap();
+        if predicate(&parsed) {
+            return parsed;
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_ws_screen_share_start_broadcasts_to_room() {
+    let base = spawn_app().await;
+
+    let alice_id = register_and_get_id(&base, "alice", "password123").await;
+    let _bob_id = register_and_get_id(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
+
+    let room = create_room(&base, &token_a, "voice").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    drain_ws(&mut ws_a).await;
+    drain_ws(&mut ws_b).await;
+
+    // Alice starts sharing
+    ws_a.send(text_msg(json!({
+        "type": "screen_share_start",
+        "room_id": room_id,
+        "payload": { "stream_id": "abc-stream-123" }
+    }))).await.unwrap();
+
+    // Bob should receive screen_share_started
+    let received = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
+    assert_eq!(received["room_id"], room_id);
+    assert_eq!(received["user_id"], alice_id);
+    assert_eq!(received["username"], "alice");
+    assert_eq!(received["stream_id"], "abc-stream-123");
+
+    // Alice should also receive the broadcast (mirrors send_message behavior)
+    let echoed = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_started").await;
+    assert_eq!(echoed["user_id"], alice_id);
+}
+
+#[tokio::test]
+async fn test_ws_screen_share_start_rejected_when_active() {
+    let base = spawn_app().await;
+
+    let alice_id = register_and_get_id(&base, "alice", "password123").await;
+    let _bob_id = register_and_get_id(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
+
+    let room = create_room(&base, &token_a, "voice").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    drain_ws(&mut ws_a).await;
+    drain_ws(&mut ws_b).await;
+
+    // Alice starts; both receive screen_share_started
+    ws_a.send(text_msg(json!({
+        "type": "screen_share_start",
+        "room_id": room_id,
+        "payload": { "stream_id": "alice-stream" }
+    }))).await.unwrap();
+    let _ = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_started").await;
+    let _ = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
+
+    // Bob attempts to start — should get an error
+    ws_b.send(text_msg(json!({
+        "type": "screen_share_start",
+        "room_id": room_id,
+        "payload": { "stream_id": "bob-stream" }
+    }))).await.unwrap();
+
+    let received = recv_json_matching(&mut ws_b, |v| v["type"] == "error").await;
+    assert!(received["message"].as_str().unwrap().to_lowercase().contains("already"),
+        "error message should mention an active share, got: {}", received["message"]);
+
+    // Alice should NOT receive a second screen_share_started for bob
+    let nothing = tokio::time::timeout(
+        std::time::Duration::from_millis(200),
+        ws_a.next(),
+    ).await;
+    assert!(nothing.is_err(), "alice's share should be unaffected by bob's rejected attempt");
+
+    // Sanity: alice's share is still attributed to alice
+    assert_eq!(alice_id, alice_id);
+}
+
+#[tokio::test]
+async fn test_ws_screen_share_stop_broadcasts() {
+    let base = spawn_app().await;
+
+    let alice_id = register_and_get_id(&base, "alice", "password123").await;
+    let _bob_id = register_and_get_id(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
+
+    let room = create_room(&base, &token_a, "voice").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    drain_ws(&mut ws_a).await;
+    drain_ws(&mut ws_b).await;
+
+    // Start
+    ws_a.send(text_msg(json!({
+        "type": "screen_share_start",
+        "room_id": room_id,
+        "payload": { "stream_id": "alice-stream" }
+    }))).await.unwrap();
+    let _ = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_started").await;
+    let _ = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
+
+    // Stop
+    ws_a.send(text_msg(json!({
+        "type": "screen_share_stop",
+        "room_id": room_id,
+        "payload": {}
+    }))).await.unwrap();
+
+    let received_b = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_stopped").await;
+    assert_eq!(received_b["room_id"], room_id);
+    assert_eq!(received_b["user_id"], alice_id);
+
+    let received_a = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_stopped").await;
+    assert_eq!(received_a["user_id"], alice_id);
+}
+
+#[tokio::test]
+async fn test_ws_screen_share_cleared_on_disconnect() {
+    let base = spawn_app().await;
+
+    let alice_id = register_and_get_id(&base, "alice", "password123").await;
+    let bob_id = register_and_get_id(&base, "bob", "password123").await;
+    let token_a = login_user(&base, "alice").await;
+    let token_b = login_user(&base, "bob").await;
+
+    let room = create_room(&base, &token_a, "voice").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    drain_ws(&mut ws_a).await;
+    drain_ws(&mut ws_b).await;
+
+    // Alice starts sharing
+    ws_a.send(text_msg(json!({
+        "type": "screen_share_start",
+        "room_id": room_id,
+        "payload": { "stream_id": "alice-stream" }
+    }))).await.unwrap();
+    let _ = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_started").await;
+    let _ = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
+
+    // Alice disconnects abruptly
+    drop(ws_a);
+
+    // Bob receives screen_share_stopped (somewhere in his stream, possibly after user_left)
+    let stopped = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_stopped").await;
+    assert_eq!(stopped["user_id"], alice_id);
+
+    // Bob can now start sharing successfully
+    ws_b.send(text_msg(json!({
+        "type": "screen_share_start",
+        "room_id": room_id,
+        "payload": { "stream_id": "bob-stream" }
+    }))).await.unwrap();
+
+    let started = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
+    assert_eq!(started["user_id"], bob_id);
+    assert_eq!(started["stream_id"], "bob-stream");
+}

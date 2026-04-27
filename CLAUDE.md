@@ -3,7 +3,7 @@
 ## What This Is
 
 A lightweight Discord alternative for a small friend group (2–10 people), built in Rust.
-Features: text chat, audio, and video. Nothing more.
+Features: text chat, audio, video, and screen share. Nothing more.
 
 ## Architecture
 
@@ -142,6 +142,16 @@ Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via
 - CORS removed (same-origin in both dev and prod)
 - Release profile: `lto = true`, `codegen-units = 1`, `strip = true`
 - Deployment: Linux-only on a Digital Ocean droplet; Caddy terminates TLS and routes `racquet.tbjag.com` → `localhost:3000` (WebSocket upgrade is automatic in Caddy v2). systemd unit at `deploy/racquet.service`.
+- Live deployment: `https://racquet.tbjag.com`, served from `/opt/racquet/` on the droplet (binary, `dist/`, `.env`, `allowed_emails.txt`, `racquet.db`). Cloudflare DNS-only (grey cloud) so Caddy gets its own Let's Encrypt cert via HTTP-01. Pushes via `deploy/deploy.sh` from WSL (cross-compiles static musl binary, rsyncs, restarts systemd unit).
+
+### Phase 6 — Screen Share ✅
+- One sharer at a time per room, enforced server-side via `active_screen_sharer` map in `ConnectionManager`. Concurrent attempts get an `error` reply; the slot auto-clears on disconnect with a `screen_share_stopped` broadcast.
+- Two new WS message types from client → server: `screen_share_start` (payload `{ stream_id }`) and `screen_share_stop`. Server broadcasts `screen_share_started` / `screen_share_stopped` to the whole room.
+- Sender keeps the camera stream running; screen tracks are added as a separate stream and broadcast via WebRTC renegotiation (addTrack + new offer over the existing signaling path). Audio capture (`getDisplayMedia({ audio: true })`) is included when the user opts in via the browser picker.
+- Receivers classify incoming streams as screen vs camera by matching the `stream_id` from the `screen_share_started` event against `event.streams[0].id` in `pc.ontrack`. Critical ordering: the UI sends `screen_share_start` *before* renegotiating, so receivers have the id registered when the new tracks arrive.
+- Renegotiation exposed two pre-existing bugs that are now fixed: `WebRTCManager.handleOffer` reuses the existing `RTCPeerConnection` for re-offers (was creating a new one each time), and `onconnectionstatechange` only treats `failed`/`closed` as terminal (`disconnected` flickers during renegotiation).
+- UI: `Share Screen` / `Stop Sharing` button next to mute/video; large focused `screen-share-tile` above the camera tiles when any user is sharing; B's button is disabled while A is sharing. `data-testid` selectors `screen-share-button`, `screen-share-tile`.
+- 4 new Rust integration tests + 5 new Playwright tests. Total now 29 Rust + 32 Playwright.
 
 ## Production Deployment Notes
 
@@ -157,3 +167,42 @@ Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via
 - **WSL has no mic/camera access** — always test audio/video in a Windows browser, never from WSL directly.
 - **P2P mesh for group calls** — at 5+ simultaneous video streams, client bandwidth becomes heavy. Acceptable for this scale but worth monitoring.
 - **STUN/TURN**: P2P works on a local network without these. For users on different networks, a STUN server is required (use `stun:stun.l.google.com:19302`). Users behind strict NATs may also need a TURN relay.
+- **`reqwest` must use `rustls-tls`, not `native-tls`** — the deploy build cross-compiles to `x86_64-unknown-linux-musl`, and `native-tls` pulls in `openssl-sys` which fails because Ubuntu has no prebuilt OpenSSL for musl. The dependency is declared as `reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }` — do not add features without keeping `default-features = false`, or you'll silently re-enable native-tls and break the deploy build.
+- **Frontend URLs must be same-origin (empty string base)** — there is one `API_BASE` in `frontend/src/lib/api.ts` (correctly `''`). Don't introduce a second `API_BASE` constant in a route file with a hardcoded `http://localhost:3000`; in prod this resolves to a literal `localhost:3000` link in the user's browser. Vite's dev proxy makes the bug invisible until you hit production.
+- **Renegotiation ordering for screen share** — the sender must send `screen_share_start` (with the stream id) over the WebSocket *before* calling `WebRTCManager.broadcastScreenStream()` (which sends the renegotiation offer). The receiver's `pc.ontrack` fires synchronously inside `setRemoteDescription`, and it classifies incoming streams as screen-vs-camera by checking the stream id against `remoteScreenStreamIds`. If the offer arrives before the `screen_share_started` notify, the screen stream gets misrouted to the camera tile (and the camera entry gets overwritten because `remoteStreams` is keyed by user id). The split `acquireScreenStream` / `broadcastScreenStream` API in `webrtc.ts` exists specifically to enforce this order — don't collapse it back into one method.
+- **Screen share tests in headless Chromium** — `getDisplayMedia` doesn't have a fake source under the existing Playwright launch flags. `frontend/tests/webrtc.spec.ts` stubs `navigator.mediaDevices.getDisplayMedia` via `page.addInitScript` to delegate to `getUserMedia`, so the tests exercise UI + signaling end-to-end. If you ever want a real screen-capture test, add `--auto-select-desktop-capture-source=Entire` to the Chromium launch args.
+
+## Phase 7 — Frontend refactor (in progress)
+
+Working plan: `/home/tbjag/.claude/plans/ok-i-now-want-atomic-moth.md`. Goal: turn the unstyled, monolithic `+page.svelte` into a themed, componentized desktop client with visible feedback for in-flight work, errors, and connection state. Desktop-only, light + dark themes (default = follow system), Svelte scoped `<style>` blocks, no Tailwind. Committing to main as work progresses (no PRs).
+
+### Completed commits
+
+1. **Theme infrastructure** (`5b7453d`) — `frontend/src/app.css` with CSS custom properties for both `[data-theme='light']` and `[data-theme='dark']`; `frontend/src/lib/stores/theme.svelte.ts` (rune store, tri-state `mode: 'light'|'dark'|'system'` persisted to `localStorage.racquet_theme`); `frontend/src/lib/components/chrome/ThemeToggle.svelte`; FOUC mitigation via inline `<script>` in `frontend/src/app.html` that sets `documentElement.dataset.theme` synchronously on first paint. 5 Playwright tests in `frontend/tests/theme.spec.ts`.
+2. **Toast + apiCall** (`fe57957`) — `frontend/src/lib/stores/toast.svelte.ts` (rune array + `pushToast`/`dismiss`); `frontend/src/lib/components/chrome/ToastHost.svelte` (fixed bottom-right, click to dismiss, `aria-live='polite'`); `frontend/src/lib/apiCall.ts` (wraps a promise, toasts on throw, returns `null`). All API calls in `+page.svelte` now go through `apiCall` with human-readable error messages. Error TTL 8000ms, info/success 5000ms. 4 Playwright tests in `frontend/tests/errors.spec.ts`.
+
+### Remaining commits (planned)
+
+3. Sidebar component extraction (`UserProfile`, `RoomList`, `CreateRoomForm`) + loading/disabled state on `CreateRoomForm` + `frontend/tests/loading.spec.ts`.
+4. Chat extraction (`MessageList` with auto-scroll-to-bottom respecting user scroll, `MessageInput`, `RoomHeader`).
+5. Call extraction (`CallControls`, `VideoTile`, `CallStage`). Consider switching `remoteStreams` Map → Array for cleaner `{#each}`.
+6. Member list UI (`MemberList.svelte`) + `frontend/tests/members.spec.ts` — `roomUsers` is already populated, just never rendered.
+7. WebSocket reconnect: `lib/stores/connection.ts`, `ws.ts` state machine (closed → connecting → open / reconnecting with exponential backoff + jitter), `setToken()` method, `onAuthFailure` callback, re-join `currentRoomId` on reconnect, `ConnectionBanner.svelte`. Tear down active call on socket loss. No Playwright test (too flaky); manual verification.
+8. Visual styling pass — populate scoped `<style>` blocks per component using CSS variables. Order: sidebar → chat → call stage → auth pages. Cap scope.
+9. Polish — focus rings, hover/transition states, empty states, scrollbar styling, dark contrast verification.
+
+### Current blocker (commit 3)
+
+After committing 1 and 2 cleanly (all 41 Playwright tests green), test discovery began failing with `Playwright Test did not expect test.describe() to be called here` for **every** spec file (auth, chat, theme, etc.), including specs that hadn't been touched. The error appeared during `npx playwright test --list` and persisted after removing the new `tests/loading.spec.ts`. No duplicate `@playwright/test` in `node_modules`. The Vite/Cargo `webServer` processes were not stuck (`ps` clean).
+
+Suspected causes (not yet verified): stale Playwright transformer cache, an interaction between the new `.svelte.ts` rune modules and Playwright's TS loader, or a lingering Vite dev server from the previous run. Next step on resume: try `rm -rf frontend/test-results frontend/.svelte-kit` and a fresh `npx playwright test --list` from a clean shell, then bisect by re-introducing files one at a time.
+
+The `loading.spec.ts` draft was moved to `/tmp/loading.spec.ts` during diagnosis.
+
+### Conventions established this phase
+
+- Stores live in `frontend/src/lib/stores/<name>.svelte.ts` (must use `.svelte.ts` extension to use runes outside components).
+- Components grouped by purpose: `lib/components/chrome/` (app-wide UI like toast/banner/theme), `lib/components/sidebar/`, `lib/components/room/`, `lib/components/call/`.
+- API failures: wrap callsite in `apiCall(() => fn(), { errorMessage: '...' })` and check the return for `null`. Don't add try/catch in `api.ts` itself.
+- Test IDs: keep all existing `data-testid` selectors when extracting components — they're the regression net for the 32 pre-existing Playwright specs.
+- New CSS values: always reference variables from `app.css` (`var(--bg)`, `var(--text)`, `var(--space-3)`, etc.). No hardcoded colors or spacing.

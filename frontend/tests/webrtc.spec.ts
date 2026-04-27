@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { setupAuthenticatedUser, registerUser, loginUser, createRoom } from './helpers';
+import { setupAuthenticatedUser, createRoom } from './helpers';
 
 const rnd = () => Math.random().toString(36).slice(2, 8);
 
@@ -10,6 +10,18 @@ async function selectRoom(page: import('@playwright/test').Page, roomName: strin
 		.filter({ hasText: roomName })
 		.click();
 	await expect(page.getByTestId('chat-area')).toBeVisible();
+}
+
+// Stubs getDisplayMedia to return a fake getUserMedia stream so screen-share
+// tests can run in headless Chromium without real desktop capture.
+async function stubGetDisplayMedia(page: import('@playwright/test').Page) {
+	await page.addInitScript(() => {
+		const md = navigator.mediaDevices as MediaDevices & {
+			getDisplayMedia?: (c?: MediaStreamConstraints) => Promise<MediaStream>;
+		};
+		md.getDisplayMedia = async () =>
+			navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+	});
 }
 
 test.describe('WebRTC calls', () => {
@@ -184,6 +196,191 @@ test.describe('WebRTC calls', () => {
 
 		// User A should no longer see the remote stream
 		await expect(pageA.locator('[data-testid="remote-stream"]')).toHaveCount(0, {
+			timeout: 10000
+		});
+
+		await contextA.close();
+		await contextB.close();
+	});
+
+	test('screen share button is hidden until joined to a call', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		await expect(page.getByTestId('screen-share-button')).toHaveCount(0);
+
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('screen-share-button')).toBeVisible();
+		await expect(page.getByTestId('screen-share-button')).toHaveText('Share Screen');
+	});
+
+	test('user A starts screen share, user B sees a focused screen tile', async ({
+		browser,
+		request
+	}) => {
+		const contextA = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const contextB = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+		await stubGetDisplayMedia(pageA);
+		await stubGetDisplayMedia(pageB);
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		await pageA.getByTestId('screen-share-button').click();
+
+		await expect(pageB.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+		// Camera tile for A should still be present on B's side
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1);
+
+		await contextA.close();
+		await contextB.close();
+	});
+
+	test('user A stops screen share, focused tile vanishes and camera tile remains', async ({
+		browser,
+		request
+	}) => {
+		const contextA = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const contextB = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+		await stubGetDisplayMedia(pageA);
+		await stubGetDisplayMedia(pageB);
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		await pageA.getByTestId('screen-share-button').click();
+		await expect(pageB.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+		await expect(pageA.getByTestId('screen-share-button')).toHaveText('Stop Sharing');
+
+		await pageA.getByTestId('screen-share-button').click();
+
+		await expect(pageB.getByTestId('screen-share-tile')).toHaveCount(0, { timeout: 10000 });
+		await expect(pageA.getByTestId('screen-share-button')).toHaveText('Share Screen');
+		// Camera tile is still there
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1);
+
+		await contextA.close();
+		await contextB.close();
+	});
+
+	test("user B's share button is disabled while user A is sharing", async ({
+		browser,
+		request
+	}) => {
+		const contextA = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const contextB = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+		await stubGetDisplayMedia(pageA);
+		await stubGetDisplayMedia(pageB);
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		await pageA.getByTestId('screen-share-button').click();
+		await expect(pageB.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		await expect(pageB.getByTestId('screen-share-button')).toBeDisabled();
+
+		// When A stops, B's button becomes enabled again
+		await pageA.getByTestId('screen-share-button').click();
+		await expect(pageB.getByTestId('screen-share-button')).toBeEnabled({ timeout: 10000 });
+
+		await contextA.close();
+		await contextB.close();
+	});
+
+	test('if sharer leaves the call mid-share, the other user can start sharing', async ({
+		browser,
+		request
+	}) => {
+		const contextA = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const contextB = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+		await stubGetDisplayMedia(pageA);
+		await stubGetDisplayMedia(pageB);
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		await pageA.getByTestId('screen-share-button').click();
+		await expect(pageB.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+		await expect(pageB.getByTestId('screen-share-button')).toBeDisabled();
+
+		// A leaves the call without stopping share first
+		await pageA.getByTestId('call-button').click();
+
+		await expect(pageB.getByTestId('screen-share-tile')).toHaveCount(0, { timeout: 10000 });
+		await expect(pageB.getByTestId('screen-share-button')).toBeEnabled({ timeout: 10000 });
+
+		// B can now start
+		await pageB.getByTestId('screen-share-button').click();
+		await expect(pageB.getByTestId('screen-share-button')).toHaveText('Stop Sharing', {
 			timeout: 10000
 		});
 

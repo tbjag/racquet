@@ -11,12 +11,14 @@ pub struct ConnectedUser {
 
 pub struct ConnectionManager {
     rooms: RwLock<HashMap<RoomId, HashMap<UserId, ConnectedUser>>>,
+    screen_sharers: RwLock<HashMap<RoomId, UserId>>,
 }
 
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
             rooms: RwLock::new(HashMap::new()),
+            screen_sharers: RwLock::new(HashMap::new()),
         }
     }
 
@@ -110,6 +112,18 @@ impl ConnectionManager {
 
         tracing::info!(user_id = %user_id, room_count = room_ids.len(), "disconnecting user from all rooms");
 
+        // Release any active screen shares this user held in these rooms.
+        let mut released_in: Vec<String> = Vec::new();
+        {
+            let mut sharers = self.screen_sharers.write().await;
+            for room_id in &room_ids {
+                if sharers.get(room_id).map(|s| s.as_str()) == Some(user_id) {
+                    sharers.remove(room_id);
+                    released_in.push(room_id.clone());
+                }
+            }
+        }
+
         for room_id in &room_ids {
             let username = if let Some(room) = rooms.get_mut(room_id) {
                 room.remove(user_id).map(|u| u.username)
@@ -128,6 +142,18 @@ impl ConnectionManager {
                     let msg = axum::extract::ws::Message::Text(notification.to_string().into());
                     for user in room.values() {
                         let _ = user.sender.send(msg.clone());
+                    }
+
+                    if released_in.contains(room_id) {
+                        let stop = serde_json::json!({
+                            "type": "screen_share_stopped",
+                            "room_id": room_id,
+                            "user_id": user_id,
+                        });
+                        let stop_msg = axum::extract::ws::Message::Text(stop.to_string().into());
+                        for user in room.values() {
+                            let _ = user.sender.send(stop_msg.clone());
+                        }
                     }
                 }
             }
@@ -155,6 +181,30 @@ impl ConnectionManager {
             }
         }
         false
+    }
+
+    /// Returns true when the share was acquired (or re-asserted by the same user).
+    /// Returns false if a different user is currently sharing in this room.
+    pub async fn try_acquire_screen_share(&self, room_id: &str, user_id: &str) -> bool {
+        let mut sharers = self.screen_sharers.write().await;
+        match sharers.get(room_id) {
+            Some(existing) if existing != user_id => false,
+            _ => {
+                sharers.insert(room_id.to_string(), user_id.to_string());
+                true
+            }
+        }
+    }
+
+    /// Returns true if `user_id` was the active sharer and was released.
+    pub async fn release_screen_share(&self, room_id: &str, user_id: &str) -> bool {
+        let mut sharers = self.screen_sharers.write().await;
+        if sharers.get(room_id).map(|s| s.as_str()) == Some(user_id) {
+            sharers.remove(room_id);
+            true
+        } else {
+            false
+        }
     }
 
     pub async fn get_room_users(&self, room_id: &str) -> Vec<(UserId, String)> {
