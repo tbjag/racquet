@@ -13,6 +13,8 @@
 	import RoomHeader from '$lib/components/room/RoomHeader.svelte';
 	import MessageList from '$lib/components/room/MessageList.svelte';
 	import MessageInput from '$lib/components/room/MessageInput.svelte';
+	import MemberList from '$lib/components/room/MemberList.svelte';
+	import type { Member } from '$lib/components/room/MemberList.svelte';
 	import CallControls from '$lib/components/call/CallControls.svelte';
 	import CallStage from '$lib/components/call/CallStage.svelte';
 	import type { RemotePeer } from '$lib/components/call/CallStage.svelte';
@@ -38,6 +40,19 @@
 	let ownUserId = $state<string>('');
 
 	const selectedRoom = $derived(rooms.find((r) => r.id === selectedRoomId) ?? null);
+
+	const members = $derived<Member[]>(
+		selectedRoomId && ownUserId
+			? [
+					{ id: ownUserId, username: displayName, isSelf: true },
+					...Array.from(roomUsers.entries()).map(([id, username]) => ({
+						id,
+						username,
+						isSelf: false
+					}))
+				]
+			: []
+	);
 
 	// WebRTC state
 	let inCall = $state(false);
@@ -315,6 +330,7 @@
 				{#if selectedRoom}
 					<RoomHeader roomName={selectedRoom.name} />
 				{/if}
+				<MemberList {members} />
 				<CallControls
 					{inCall}
 					{audioMuted}
