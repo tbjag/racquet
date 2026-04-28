@@ -38,3 +38,48 @@
 		{submitting ? 'Creating…' : 'Create'}
 	</button>
 </form>
+
+<style>
+	.create-room-form {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-3) var(--space-4);
+		border-bottom: 1px solid var(--border);
+		background: var(--bg-sunken);
+	}
+
+	.create-room-form input {
+		width: 100%;
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg);
+		color: var(--text);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+	}
+
+	.create-room-form input:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+
+	.create-room-form button {
+		padding: var(--space-2) var(--space-3);
+		background: var(--accent);
+		color: var(--accent-text);
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-sm);
+		font-size: 0.85rem;
+		font-weight: 600;
+	}
+
+	.create-room-form button:hover:not(:disabled) {
+		background: var(--accent-hover);
+		border-color: var(--accent-hover);
+	}
+
+	.create-room-form button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+</style>

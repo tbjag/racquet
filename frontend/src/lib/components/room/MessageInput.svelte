@@ -41,14 +41,20 @@
 	.message-form {
 		padding: var(--space-3) var(--space-4);
 		border-top: 1px solid var(--border);
+		background: var(--bg);
 	}
 
 	.message-form input {
 		width: 100%;
-		padding: var(--space-2) var(--space-3);
+		padding: var(--space-3);
 		background: var(--bg-elevated);
 		color: var(--text);
 		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
+		border-radius: var(--radius-md);
+		font-size: 0.95rem;
+	}
+
+	.message-form input::placeholder {
+		color: var(--text-muted);
 	}
 </style>

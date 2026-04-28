@@ -62,9 +62,30 @@
 		min-height: 0;
 		overflow-y: auto;
 		padding: var(--space-3) var(--space-4);
+		background: var(--bg);
+		color: var(--text);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
 	}
 
 	.message-item {
 		padding: var(--space-1) 0;
+		line-height: 1.5;
+		word-break: break-word;
+	}
+
+	.message-item strong {
+		color: var(--accent);
+		font-weight: 600;
+		margin-right: var(--space-1);
+	}
+
+	[data-testid='no-messages-placeholder'] {
+		margin: 0;
+		padding: var(--space-3) 0;
+		color: var(--text-muted);
+		font-size: 0.9rem;
+		font-style: italic;
 	}
 </style>

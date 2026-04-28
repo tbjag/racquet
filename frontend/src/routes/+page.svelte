@@ -373,6 +373,8 @@
 	.app {
 		display: flex;
 		height: 100vh;
+		background: var(--bg);
+		color: var(--text);
 	}
 
 	.sidebar {
@@ -381,13 +383,54 @@
 		display: flex;
 		flex-direction: column;
 		border-right: 1px solid var(--border);
+		background: var(--bg-sunken);
 		overflow-y: auto;
+	}
+
+	.sidebar-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: var(--space-3) var(--space-4);
+		border-bottom: 1px solid var(--border);
+		border-top: 1px solid var(--border);
+	}
+
+	.sidebar-header h2 {
+		margin: 0;
+		font-size: 0.75rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-muted);
+	}
+
+	.sidebar-header button {
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		color: var(--text-muted);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		font-size: 1rem;
+		line-height: 1;
+	}
+
+	.sidebar-header button:hover {
+		background: var(--bg-hover);
+		color: var(--text);
+		border-color: var(--border-strong);
 	}
 
 	.content {
 		flex: 1;
 		display: flex;
 		min-width: 0;
+		background: var(--bg);
 	}
 
 	.chat-area {
@@ -396,5 +439,16 @@
 		flex-direction: column;
 		min-height: 0;
 		min-width: 0;
+	}
+
+	.select-room-prompt {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin: 0;
+		padding: var(--space-6);
+		color: var(--text-muted);
+		font-size: 1rem;
 	}
 </style>

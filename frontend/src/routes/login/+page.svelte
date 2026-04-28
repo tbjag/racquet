@@ -15,11 +15,79 @@
 </script>
 
 <div class="auth-page">
-	<h1>Racquet</h1>
-	{#if error}
-		<p data-testid="error-message" class="error">{error}</p>
-	{/if}
-	<a href="{API_BASE}/api/auth/google" data-testid="google-login-button" class="google-btn">
-		Sign in with Google
-	</a>
+	<div class="card">
+		<h1>Racquet</h1>
+		<p class="tagline">Chat, calls, and screen share for your friends.</p>
+		{#if error}
+			<p data-testid="error-message" class="error">{error}</p>
+		{/if}
+		<a href="{API_BASE}/api/auth/google" data-testid="google-login-button" class="google-btn">
+			Sign in with Google
+		</a>
+	</div>
 </div>
+
+<style>
+	.auth-page {
+		min-height: 100vh;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-4);
+		background: var(--bg-sunken);
+	}
+
+	.card {
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: var(--space-4);
+		width: 100%;
+		max-width: 360px;
+		padding: var(--space-6);
+		background: var(--bg-elevated);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-md);
+		box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+	}
+
+	h1 {
+		margin: 0;
+		text-align: center;
+		font-size: 2rem;
+		font-weight: 700;
+		color: var(--text);
+	}
+
+	.tagline {
+		margin: 0;
+		text-align: center;
+		color: var(--text-muted);
+		font-size: 0.9rem;
+	}
+
+	.error {
+		margin: 0;
+		padding: var(--space-3);
+		background: var(--danger-bg);
+		border: 1px solid var(--danger);
+		border-radius: var(--radius-sm);
+		color: var(--danger);
+		font-size: 0.85rem;
+	}
+
+	.google-btn {
+		display: inline-block;
+		text-align: center;
+		padding: var(--space-3) var(--space-4);
+		background: var(--accent);
+		color: var(--accent-text);
+		border-radius: var(--radius-sm);
+		text-decoration: none;
+		font-weight: 600;
+	}
+
+	.google-btn:hover {
+		background: var(--accent-hover);
+	}
+</style>

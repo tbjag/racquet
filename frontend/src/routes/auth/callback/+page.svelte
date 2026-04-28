@@ -18,5 +18,21 @@
 </script>
 
 <div class="auth-page">
-	<p>Signing you in...</p>
+	<p>Signing you in…</p>
 </div>
+
+<style>
+	.auth-page {
+		min-height: 100vh;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--bg-sunken);
+	}
+
+	p {
+		margin: 0;
+		color: var(--text-muted);
+		font-size: 1rem;
+	}
+</style>
