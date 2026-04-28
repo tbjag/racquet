@@ -59,7 +59,7 @@ Audio and video flow directly browser-to-browser (P2P mesh). The server only pas
 - **Code editing and compilation**: inside WSL
 - **Testing**: Windows browser (Chrome or Edge) at `http://localhost:5173` (Vite dev server)
 - **Integration tests**: Playwright (Chromium headless) — runs against real backend + frontend
-- **State**: Phase 3 complete — backend server + Svelte frontend with auth, rooms, real-time chat, and WebRTC audio/video calls
+- **State**: Phases 1–6 complete and deployed. Phase 7 (frontend refactor) at commit 7/9 — sidebar, chat, call, and member list components extracted; toast + apiCall wired; theme infra; WebSocket reconnect with backoff and `ConnectionBanner`. Remaining: visual styling pass (commit 8) and polish (commit 9). 29 Rust tests + 46 Playwright tests passing.
 
 WSL2 and Windows share `localhost`, so any port Axum binds to in WSL is immediately accessible from the Windows browser with no extra config.
 
