@@ -40,6 +40,7 @@
 	let currentRoomId: string | null = null;
 	let displayName = $state('');
 	let ownUserId = $state<string>('');
+	let roomUsers = $state<Map<string, string>>(new Map()); // userId -> username
 
 	const selectedRoom = $derived(rooms.find((r) => r.id === selectedRoomId) ?? null);
 
@@ -63,7 +64,6 @@
 	let webrtcManager: WebRTCManager | null = null;
 	let audioMuted = $state(false);
 	let videoMuted = $state(false);
-	let roomUsers = $state<Map<string, string>>(new Map()); // userId -> username
 
 	// Screen share state
 	let localScreenStream = $state<MediaStream | null>(null);
