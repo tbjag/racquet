@@ -13,6 +13,9 @@
 	import RoomHeader from '$lib/components/room/RoomHeader.svelte';
 	import MessageList from '$lib/components/room/MessageList.svelte';
 	import MessageInput from '$lib/components/room/MessageInput.svelte';
+	import CallControls from '$lib/components/call/CallControls.svelte';
+	import CallStage from '$lib/components/call/CallStage.svelte';
+	import type { RemotePeer } from '$lib/components/call/CallStage.svelte';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
 	type Message = {
@@ -39,7 +42,7 @@
 	// WebRTC state
 	let inCall = $state(false);
 	let localStream = $state<MediaStream | null>(null);
-	let remoteStreams = $state<Map<string, { username: string; stream: MediaStream }>>(new Map());
+	let remoteStreams = $state<RemotePeer[]>([]);
 	let webrtcManager: WebRTCManager | null = null;
 	let audioMuted = $state(false);
 	let videoMuted = $state(false);
@@ -200,12 +203,13 @@
 			ws,
 			selectedRoomId,
 			(userId, username, stream) => {
-				remoteStreams = new Map([...remoteStreams, [userId, { username, stream }]]);
+				remoteStreams = [
+					...remoteStreams.filter((p) => p.userId !== userId),
+					{ userId, username, stream }
+				];
 			},
 			(userId) => {
-				const updated = new Map(remoteStreams);
-				updated.delete(userId);
-				remoteStreams = updated;
+				remoteStreams = remoteStreams.filter((p) => p.userId !== userId);
 			},
 			(userId, username, stream) => {
 				remoteScreenStream = { userId, username, stream };
@@ -239,7 +243,7 @@
 			webrtcManager = null;
 		}
 		localStream = null;
-		remoteStreams = new Map();
+		remoteStreams = [];
 		localScreenStream = null;
 		remoteScreenStream = null;
 		inCall = false;
@@ -287,17 +291,6 @@
 		}
 	}
 
-	function setStream(node: HTMLVideoElement, stream: MediaStream) {
-		node.srcObject = stream;
-		return {
-			update(newStream: MediaStream) {
-				node.srcObject = newStream;
-			},
-			destroy() {
-				node.srcObject = null;
-			}
-		};
-	}
 </script>
 
 <div class="app">
@@ -322,66 +315,25 @@
 				{#if selectedRoom}
 					<RoomHeader roomName={selectedRoom.name} />
 				{/if}
-				<div class="call-controls">
-					<button data-testid="call-button" onclick={() => inCall ? leaveCall() : joinCall()}>
-						{inCall ? 'Leave Call' : 'Join Call'}
-					</button>
-					{#if inCall}
-						<button data-testid="mute-button" onclick={toggleMute}>
-							{audioMuted ? 'Unmute' : 'Mute'}
-						</button>
-						<button data-testid="video-toggle-button" onclick={toggleVideo}>
-							{videoMuted ? 'Video On' : 'Video Off'}
-						</button>
-						<button
-							data-testid="screen-share-button"
-							onclick={toggleScreenShare}
-							disabled={activeScreenSharerId !== null && activeScreenSharerId !== ownUserId}
-						>
-							{localScreenStream ? 'Stop Sharing' : 'Share Screen'}
-						</button>
-					{/if}
-				</div>
+				<CallControls
+					{inCall}
+					{audioMuted}
+					{videoMuted}
+					isSharing={!!localScreenStream}
+					canShare={activeScreenSharerId === null || activeScreenSharerId === ownUserId}
+					onToggleCall={() => (inCall ? leaveCall() : joinCall())}
+					onToggleMute={toggleMute}
+					onToggleVideo={toggleVideo}
+					onToggleScreenShare={toggleScreenShare}
+				/>
 
-				{#if inCall && (localScreenStream || remoteScreenStream)}
-					<!-- svelte-ignore a11y_media_has_caption -->
-					<video
-						data-testid="screen-share-tile"
-						class="screen-share-tile"
-						autoplay
-						muted={!!localScreenStream}
-						playsinline
-						use:setStream={(localScreenStream ?? remoteScreenStream!.stream)}
-					></video>
-				{/if}
-
-				{#if inCall && localStream}
-					<!-- svelte-ignore a11y_media_has_caption -->
-					<video
-						data-testid="local-video"
-						class={localScreenStream || remoteScreenStream ? 'camera-strip' : ''}
-						autoplay
-						muted
-						playsinline
-						use:setStream={localStream}
-					></video>
-				{/if}
-
-				{#if inCall && remoteStreams.size > 0}
-					<div
-						data-testid="remote-streams"
-						class={'remote-streams ' + (localScreenStream || remoteScreenStream ? 'camera-strip' : '')}
-					>
-						{#each [...remoteStreams.entries()] as [userId, { username, stream }]}
-							<!-- svelte-ignore a11y_media_has_caption -->
-							<video
-								data-testid="remote-stream"
-								autoplay
-								playsinline
-								use:setStream={stream}
-							></video>
-						{/each}
-					</div>
+				{#if inCall}
+					<CallStage
+						{localStream}
+						{remoteStreams}
+						{localScreenStream}
+						{remoteScreenStream}
+					/>
 				{/if}
 
 				<MessageList {messages} />
