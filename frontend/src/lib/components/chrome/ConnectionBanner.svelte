@@ -28,15 +28,27 @@
 		top: 0;
 		left: 0;
 		right: 0;
-		z-index: 100;
+		z-index: 150;
 		padding: var(--space-2) var(--space-4);
 		font-size: 0.85rem;
+		font-weight: 500;
 		text-align: center;
 		background: var(--accent);
 		color: var(--accent-text);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+		animation: banner-in 200ms ease-out;
 	}
 
 	.banner[data-tone='error'] {
 		background: var(--danger);
+	}
+
+	@keyframes banner-in {
+		from {
+			transform: translateY(-100%);
+		}
+		to {
+			transform: translateY(0);
+		}
 	}
 </style>

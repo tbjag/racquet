@@ -37,6 +37,11 @@
 		font: inherit;
 		cursor: pointer;
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+		animation: toast-in 160ms ease-out;
+	}
+
+	.toast:hover {
+		filter: brightness(1.04);
 	}
 
 	.toast-error {
@@ -48,5 +53,16 @@
 	.toast-success {
 		border-color: var(--success);
 		color: var(--success);
+	}
+
+	@keyframes toast-in {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 </style>
