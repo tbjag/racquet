@@ -1,4 +1,6 @@
 <script lang="ts">
+	import ThemeToggle from '$lib/components/chrome/ThemeToggle.svelte';
+
 	type Props = {
 		displayName: string;
 		onSave: (newName: string) => Promise<boolean>;
@@ -44,7 +46,10 @@
 			<button data-testid="edit-name-button" class="ghost" onclick={startEdit}>Edit</button>
 		</div>
 	{/if}
-	<button data-testid="logout-button" class="ghost logout" onclick={onLogout}>Logout</button>
+	<div class="footer-row">
+		<ThemeToggle />
+		<button data-testid="logout-button" class="ghost logout" onclick={onLogout}>Logout</button>
+	</div>
 </div>
 
 <style>
@@ -91,6 +96,12 @@
 		gap: var(--space-2);
 	}
 
+	.footer-row {
+		display: flex;
+		gap: var(--space-2);
+		align-items: center;
+	}
+
 	button {
 		padding: var(--space-2) var(--space-3);
 		background: var(--bg-elevated);
@@ -127,7 +138,6 @@
 	}
 
 	button.logout {
-		align-self: flex-start;
 		font-size: 0.8rem;
 	}
 </style>

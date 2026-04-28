@@ -4,7 +4,6 @@
 	import { getToken } from '$lib/auth';
 	import favicon from '$lib/assets/favicon.svg';
 	import { theme } from '$lib/stores/theme.svelte';
-	import ThemeToggle from '$lib/components/chrome/ThemeToggle.svelte';
 	import ToastHost from '$lib/components/chrome/ToastHost.svelte';
 	import '../app.css';
 
@@ -31,19 +30,6 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="theme-toggle-fixed">
-	<ThemeToggle />
-</div>
-
 {@render children()}
 
 <ToastHost />
-
-<style>
-	.theme-toggle-fixed {
-		position: fixed;
-		top: var(--space-3);
-		right: var(--space-3);
-		z-index: 100;
-	}
-</style>
