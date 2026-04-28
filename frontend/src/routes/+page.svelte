@@ -10,6 +10,9 @@
 	import UserProfile from '$lib/components/sidebar/UserProfile.svelte';
 	import RoomList from '$lib/components/sidebar/RoomList.svelte';
 	import CreateRoomForm from '$lib/components/sidebar/CreateRoomForm.svelte';
+	import RoomHeader from '$lib/components/room/RoomHeader.svelte';
+	import MessageList from '$lib/components/room/MessageList.svelte';
+	import MessageInput from '$lib/components/room/MessageInput.svelte';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
 	type Message = {
@@ -25,12 +28,13 @@
 	let rooms = $state<Room[]>([]);
 	let selectedRoomId = $state<string | null>(null);
 	let messages = $state<Message[]>([]);
-	let messageInput = $state('');
 	let showCreateForm = $state(false);
 	let ws: WebSocketClient | null = null;
 	let currentRoomId: string | null = null;
 	let displayName = $state('');
 	let ownUserId = $state<string>('');
+
+	const selectedRoom = $derived(rooms.find((r) => r.id === selectedRoomId) ?? null);
 
 	// WebRTC state
 	let inCall = $state(false);
@@ -157,12 +161,9 @@
 		return true;
 	}
 
-	function handleSendMessage(e: Event) {
-		e.preventDefault();
-		if (!ws || !selectedRoomId || !messageInput.trim()) return;
-
-		ws.sendMessage(selectedRoomId, messageInput.trim());
-		messageInput = '';
+	function handleSendMessage(text: string) {
+		if (!ws || !selectedRoomId) return;
+		ws.sendMessage(selectedRoomId, text);
 	}
 
 	async function handleSaveName(newName: string): Promise<boolean> {
@@ -190,13 +191,6 @@
 		clearToken();
 		ws?.disconnect();
 		goto('/login');
-	}
-
-	function handleKeyDown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault();
-			handleSendMessage(e);
-		}
 	}
 
 	async function joinCall() {
@@ -325,6 +319,9 @@
 	<main class="content">
 		{#if selectedRoomId}
 			<div data-testid="chat-area" class="chat-area">
+				{#if selectedRoom}
+					<RoomHeader roomName={selectedRoom.name} />
+				{/if}
 				<div class="call-controls">
 					<button data-testid="call-button" onclick={() => inCall ? leaveCall() : joinCall()}>
 						{inCall ? 'Leave Call' : 'Join Call'}
@@ -387,30 +384,41 @@
 					</div>
 				{/if}
 
-				<div class="message-list">
-					{#if messages.length === 0}
-						<p data-testid="no-messages-placeholder">No messages yet</p>
-					{:else}
-						{#each messages as msg}
-							<div data-testid="message-item" class="message-item">
-								<strong>{msg.username}</strong>: {msg.content}
-							</div>
-						{/each}
-					{/if}
-				</div>
-
-				<form onsubmit={handleSendMessage} class="message-form">
-					<input
-						data-testid="message-input"
-						type="text"
-						placeholder="Type a message..."
-						bind:value={messageInput}
-						onkeydown={handleKeyDown}
-					/>
-				</form>
+				<MessageList {messages} />
+				<MessageInput onSend={handleSendMessage} />
 			</div>
 		{:else}
 			<p class="select-room-prompt">Select a room to start chatting</p>
 		{/if}
 	</main>
 </div>
+
+<style>
+	.app {
+		display: flex;
+		height: 100vh;
+	}
+
+	.sidebar {
+		width: 240px;
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		border-right: 1px solid var(--border);
+		overflow-y: auto;
+	}
+
+	.content {
+		flex: 1;
+		display: flex;
+		min-width: 0;
+	}
+
+	.chat-area {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		min-width: 0;
+	}
+</style>

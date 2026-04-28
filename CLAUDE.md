@@ -86,15 +86,17 @@ The frontend calls the backend directly at `localhost:3000` (configured in `fron
 ### Running integration tests
 
 ```bash
-cd frontend && npx playwright test
+cd frontend && ./node_modules/.bin/playwright test
 ```
+
+Use the local binary, not `npx playwright` — npx silently downloads a newer global Playwright that mismatches the local install and then every spec fails with "Playwright Test did not expect test.describe() to be called here". See the resolved-blocker note in Phase 7 for details.
 
 Playwright auto-starts both the backend (port 3000) and frontend (port 5173) via `webServer` config. Tests use a separate SQLite DB at `/tmp/racquet-e2e.db`. If servers are already running, they are reused.
 
 - 25 tests across 4 files: `auth.spec.ts`, `rooms.spec.ts`, `chat.spec.ts`, `webrtc.spec.ts`
 - Tests use random usernames/room names so they don't depend on a clean DB
-- For headed mode (see the browser): `npx playwright test --headed`
-- For the interactive UI: `npx playwright test --ui`
+- For headed mode (see the browser): `./node_modules/.bin/playwright test --headed`
+- For the interactive UI: `./node_modules/.bin/playwright test --ui`
 
 ### Audio/video testing locally
 
@@ -181,19 +183,19 @@ Working plan: `/home/tbjag/.claude/plans/ok-i-now-want-atomic-moth.md`. Goal: tu
 1. **Theme infrastructure** (`5b7453d`) — `frontend/src/app.css` with CSS custom properties for both `[data-theme='light']` and `[data-theme='dark']`; `frontend/src/lib/stores/theme.svelte.ts` (rune store, tri-state `mode: 'light'|'dark'|'system'` persisted to `localStorage.racquet_theme`); `frontend/src/lib/components/chrome/ThemeToggle.svelte`; FOUC mitigation via inline `<script>` in `frontend/src/app.html` that sets `documentElement.dataset.theme` synchronously on first paint. 5 Playwright tests in `frontend/tests/theme.spec.ts`.
 2. **Toast + apiCall** (`fe57957`) — `frontend/src/lib/stores/toast.svelte.ts` (rune array + `pushToast`/`dismiss`); `frontend/src/lib/components/chrome/ToastHost.svelte` (fixed bottom-right, click to dismiss, `aria-live='polite'`); `frontend/src/lib/apiCall.ts` (wraps a promise, toasts on throw, returns `null`). All API calls in `+page.svelte` now go through `apiCall` with human-readable error messages. Error TTL 8000ms, info/success 5000ms. 4 Playwright tests in `frontend/tests/errors.spec.ts`.
 3. **Sidebar extraction** — `frontend/src/lib/components/sidebar/{UserProfile,RoomList,CreateRoomForm}.svelte`. `CreateRoomForm` owns its own input state + `submitting` flag and disables both input and button during the in-flight POST (button text flips to `Creating…`). Submit also disabled when name is empty/whitespace. `+page.svelte`'s `handleCreateRoom` and `handleSaveName` were reshaped to take a `name` arg and return `Promise<boolean>` so the children can react to success/failure. All existing `data-testid` selectors preserved for regression coverage. 2 Playwright tests in `frontend/tests/loading.spec.ts` (43 total now).
+4. **Chat extraction** — `frontend/src/lib/components/room/{RoomHeader,MessageList,MessageInput}.svelte`. `MessageList` owns the scrollable container, tracks a `stickToBottom` flag from the scroll handler (within 80px of bottom = sticky), and only auto-scrolls on new messages when sticky. `MessageInput` owns its own input state and Enter handling and calls back to the parent via `onSend(text)`. New `RoomHeader` shows the selected room name (`data-testid="room-header"`). The page now has a minimum scoped layout (`.app` flex 100vh, `.chat-area` flex column with `min-height: 0`) so `MessageList` can actually overflow — full styling pass is still commit 8. 1 Playwright test in `frontend/tests/scroll.spec.ts` (44 total now).
 
 ### Remaining commits (planned)
 
-4. Chat extraction (`MessageList` with auto-scroll-to-bottom respecting user scroll, `MessageInput`, `RoomHeader`).
 5. Call extraction (`CallControls`, `VideoTile`, `CallStage`). Consider switching `remoteStreams` Map → Array for cleaner `{#each}`.
 6. Member list UI (`MemberList.svelte`) + `frontend/tests/members.spec.ts` — `roomUsers` is already populated, just never rendered.
 7. WebSocket reconnect: `lib/stores/connection.ts`, `ws.ts` state machine (closed → connecting → open / reconnecting with exponential backoff + jitter), `setToken()` method, `onAuthFailure` callback, re-join `currentRoomId` on reconnect, `ConnectionBanner.svelte`. Tear down active call on socket loss. No Playwright test (too flaky); manual verification.
 8. Visual styling pass — populate scoped `<style>` blocks per component using CSS variables. Order: sidebar → chat → call stage → auth pages. Cap scope.
 9. Polish — focus rings, hover/transition states, empty states, scrollbar styling, dark contrast verification.
 
-### Resolved: commit-3 test-discovery blocker
+### Resolved: Playwright test-discovery blocker (real root cause)
 
-Between commits 2 and 3, `npx playwright test --list` started failing with `Playwright Test did not expect test.describe() to be called here` across every spec — turned out to be a stale Playwright transformer / SvelteKit cache. Recovery: `rm -rf frontend/test-results frontend/.svelte-kit` then re-run. If it recurs, also kill any orphaned Vite/Cargo `webServer` processes.
+`npx playwright test` was downloading a newer Playwright (e.g. 1.59.1) into `~/.npm/_npx/...` and running it against the locally-installed 1.58.2 — that's the "two different versions of @playwright/test" error message taken literally. Symptom is `Playwright Test did not expect test.describe() to be called here` for *every* spec, including unmodified ones. Recovery: invoke the local binary directly — `./node_modules/.bin/playwright test` (run from `frontend/`). The cache-clear that "fixed" it during commit 3 worked only because the cache was wiped *and* npx happened to redownload a matching version on the next run; clearing caches is not a reliable fix. Don't use `npx playwright` in this repo.
 
 ### Conventions established this phase
 
