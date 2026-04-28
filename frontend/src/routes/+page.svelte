@@ -18,6 +18,8 @@
 	import CallControls from '$lib/components/call/CallControls.svelte';
 	import CallStage from '$lib/components/call/CallStage.svelte';
 	import type { RemotePeer } from '$lib/components/call/CallStage.svelte';
+	import ConnectionBanner from '$lib/components/chrome/ConnectionBanner.svelte';
+	import { connection } from '$lib/stores/connection.svelte';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
 	type Message = {
@@ -76,8 +78,12 @@
 		}
 
 		ws = new WebSocketClient();
-		ws.connect(token);
 		ws.onMessage(handleWsMessage);
+		ws.onAuthFailure(() => {
+			clearToken();
+			goto('/login');
+		});
+		ws.connect(token);
 
 		const profile = await apiCall(() => getProfile(token!), {
 			errorMessage: 'Could not load your profile'
@@ -88,6 +94,13 @@
 		}
 
 		await loadRooms();
+	});
+
+	// Tear down an active call when the socket drops; signaling needs the WS.
+	$effect(() => {
+		if (inCall && connection.status !== 'open') {
+			leaveCall();
+		}
 	});
 
 	onDestroy(() => {
@@ -193,15 +206,8 @@
 		token = result.token;
 		setToken(result.token);
 		displayName = result.user.username;
-
-		// Reconnect WebSocket with new token so messages use the new name
-		ws?.disconnect();
-		ws = new WebSocketClient();
-		ws.connect(token);
-		ws.onMessage(handleWsMessage);
-		if (currentRoomId) {
-			ws.joinRoom(currentRoomId);
-		}
+		// ws.setToken triggers a reconnect; the client re-joins currentRoomId itself.
+		ws?.setToken(result.token);
 		return true;
 	}
 
@@ -307,6 +313,8 @@
 	}
 
 </script>
+
+<ConnectionBanner />
 
 <div class="app">
 	<aside class="sidebar">
