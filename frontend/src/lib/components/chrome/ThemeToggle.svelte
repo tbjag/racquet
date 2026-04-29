@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { theme, cycleMode } from '$lib/stores/theme.svelte';
 
-	const labels = { light: 'Light', dark: 'Dark', system: 'System' } as const;
+	const labels = { light: 'Light', dark: 'Dark', system: 'System', retro: 'Retro' } as const;
 </script>
 
 <button
@@ -9,7 +9,7 @@
 	data-theme-mode={theme.mode}
 	class="theme-toggle"
 	onclick={cycleMode}
-	title="Toggle theme (light → dark → system)"
+	title="Toggle theme (light → dark → system → retro)"
 	aria-label="Toggle theme"
 >
 	Theme: {labels[theme.mode]}

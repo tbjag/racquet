@@ -64,6 +64,78 @@
 	--focus-ring: 0 0 0 3px rgba(88, 101, 242, 0.5);
 }
 
+:root[data-theme='retro'] {
+	--font-sans: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, Geneva, Verdana, sans-serif;
+	--font-mono: 'Courier New', Courier, monospace;
+
+	--radius-sm: 0px;
+	--radius-md: 0px;
+
+	--bg: #c0c0c0;
+	--bg-elevated: #ffffff;
+	--bg-sunken: #c0c0c0;
+	--bg-hover: #d0d0d0;
+
+	--text: #000000;
+	--text-muted: #404040;
+	--text-inverse: #ffffff;
+
+	--border: #808080;
+	--border-strong: #000000;
+
+	--accent: #000080;
+	--accent-hover: #1084d0;
+	--accent-text: #ffffff;
+
+	--danger: #ff0000;
+	--danger-bg: #ffd0d0;
+	--success: #00aa00;
+	--warning: #ffff00;
+
+	--focus-ring: 0 0 0 2px #000000;
+}
+
+:root[data-theme='retro'] body {
+	background-color: #c0c0c0;
+	background-image: linear-gradient(45deg, #b8b8b8 25%, transparent 25%),
+		linear-gradient(-45deg, #b8b8b8 25%, transparent 25%),
+		linear-gradient(45deg, transparent 75%, #b8b8b8 75%),
+		linear-gradient(-45deg, transparent 75%, #b8b8b8 75%);
+	background-size: 4px 4px;
+	background-position: 0 0, 0 2px, 2px -2px, -2px 0px;
+}
+
+:root[data-theme='retro'] :focus-visible {
+	outline: 2px dotted #000;
+	outline-offset: 2px;
+	box-shadow: none;
+}
+
+:root[data-theme='retro'] button {
+	border: 2px solid;
+	border-color: #ffffff #808080 #808080 #ffffff;
+	box-shadow: inset -1px -1px 0 #404040, inset 1px 1px 0 #dfdfdf;
+	border-radius: 0;
+	font-weight: bold;
+	transition: none;
+}
+
+:root[data-theme='retro'] button:active:not(:disabled) {
+	border-color: #808080 #ffffff #ffffff #808080;
+	box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+	transform: translate(1px, 1px);
+}
+
+:root[data-theme='retro'] input,
+:root[data-theme='retro'] textarea {
+	border: 2px solid;
+	border-color: #808080 #ffffff #ffffff #808080;
+	border-radius: 0;
+	background: #ffffff;
+	color: #000000;
+	transition: none;
+}
+
 html,
 body {
 	margin: 0;

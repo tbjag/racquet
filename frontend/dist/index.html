@@ -3,30 +3,56 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<link href="/_app/immutable/entry/start.Dz9f4psl.js" rel="modulepreload">
-		<link href="/_app/immutable/chunks/BYQlNDcI.js" rel="modulepreload">
-		<link href="/_app/immutable/chunks/B-B9bIX0.js" rel="modulepreload">
-		<link href="/_app/immutable/chunks/BGcunjFz.js" rel="modulepreload">
-		<link href="/_app/immutable/entry/app.z1jDistF.js" rel="modulepreload">
-		<link href="/_app/immutable/chunks/dQkm3uDK.js" rel="modulepreload">
-		<link href="/_app/immutable/chunks/uAUDGPrp.js" rel="modulepreload">
-		<link href="/_app/immutable/chunks/DvGiqQMy.js" rel="modulepreload">
-		<link href="/_app/immutable/chunks/BoICDfm5.js" rel="modulepreload">
+		<script>
+			(function () {
+				try {
+					var stored = localStorage.getItem('racquet_theme');
+					var mode =
+						stored === 'light' ||
+						stored === 'dark' ||
+						stored === 'system' ||
+						stored === 'retro'
+							? stored
+							: 'system';
+					var effective =
+						mode === 'retro'
+							? 'retro'
+							: mode === 'system'
+								? window.matchMedia('(prefers-color-scheme: dark)').matches
+									? 'dark'
+									: 'light'
+								: mode;
+					document.documentElement.dataset.theme = effective;
+				} catch (e) {
+					document.documentElement.dataset.theme = 'light';
+				}
+			})();
+		</script>
+		<link href="/_app/immutable/entry/start.DqYNaJMN.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/ZJ5G1tiL.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/DTpgRB4Z.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/vqYh3MTv.js" rel="modulepreload">
+		<link href="/_app/immutable/entry/app.Bv4gfigJ.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/C_b5Tl7l.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/DLpRCJsp.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/mPt7Vk8H.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/B4jWkRyp.js" rel="modulepreload">
+		<link href="/_app/immutable/chunks/CAhEFaC5.js" rel="modulepreload">
 		
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">
 			<script>
 				{
-					__sveltekit_1my6jrp = {
+					__sveltekit_q7bgoo = {
 						base: ""
 					};
 
 					const element = document.currentScript.parentElement;
 
 					Promise.all([
-						import("/_app/immutable/entry/start.Dz9f4psl.js"),
-						import("/_app/immutable/entry/app.z1jDistF.js")
+						import("/_app/immutable/entry/start.DqYNaJMN.js"),
+						import("/_app/immutable/entry/app.Bv4gfigJ.js")
 					]).then(([kit, app]) => {
 						kit.start(app, element);
 					});

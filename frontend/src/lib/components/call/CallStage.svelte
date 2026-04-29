@@ -14,6 +14,22 @@
 
 	const screenStream = $derived(localScreenStream ?? remoteScreenStream?.stream ?? null);
 	const screenActive = $derived(screenStream !== null);
+
+	let theaterMode = $state(false);
+	let camerasVisible = $state(true);
+
+	$effect(() => {
+		if (!screenActive) theaterMode = false;
+	});
+
+	$effect(() => {
+		if (!theaterMode) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === 'Escape') theaterMode = false;
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
 </script>
 
 <div class="call-stage" class:has-screen={screenActive}>
@@ -25,6 +41,15 @@
 				muted={!!localScreenStream}
 				class="screen-share-tile"
 			/>
+			<button
+				type="button"
+				class="theater-toggle"
+				data-testid="theater-toggle"
+				onclick={() => (theaterMode = true)}
+				aria-label="Enter theater mode"
+			>
+				Theater
+			</button>
 		</div>
 	{/if}
 
@@ -57,6 +82,45 @@
 	</div>
 </div>
 
+{#if theaterMode && screenActive && screenStream}
+	<div class="theater-overlay" role="dialog" aria-label="Theater mode">
+		<VideoTile
+			stream={screenStream}
+			testid="theater-screen-tile"
+			muted={!!localScreenStream}
+			class="theater-video"
+		/>
+		<div class="theater-buttons">
+			<button
+				type="button"
+				class="btn"
+				data-testid="theater-cameras-toggle"
+				onclick={() => (camerasVisible = !camerasVisible)}
+			>
+				{camerasVisible ? 'Hide Cameras' : 'Show Cameras'}
+			</button>
+			<button
+				type="button"
+				class="btn"
+				data-testid="theater-exit"
+				onclick={() => (theaterMode = false)}
+			>
+				Exit Theater
+			</button>
+		</div>
+		{#if camerasVisible && remoteStreams.length > 0}
+			<div class="theater-cameras" data-testid="theater-cameras">
+				{#each remoteStreams as peer (peer.userId)}
+					<div class="tile">
+						<VideoTile stream={peer.stream} testid="remote-stream" />
+						<span class="label">{peer.username}</span>
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{/if}
+
 <style>
 	.call-stage {
 		display: flex;
@@ -68,6 +132,7 @@
 	}
 
 	.screen-wrap {
+		position: relative;
 		display: flex;
 		justify-content: center;
 		background: #000;
@@ -81,6 +146,26 @@
 		object-fit: contain;
 		background: #000;
 		display: block;
+	}
+
+	.theater-toggle {
+		position: absolute;
+		top: var(--space-2);
+		right: var(--space-2);
+		padding: var(--space-1) var(--space-2);
+		background: rgba(0, 0, 0, 0.55);
+		color: #fff;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: var(--radius-sm);
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+		z-index: 1;
+	}
+
+	.theater-toggle:hover {
+		background: rgba(0, 0, 0, 0.75);
+		border-color: rgba(255, 255, 255, 0.4);
 	}
 
 	.cameras {
@@ -136,5 +221,62 @@
 
 	.remote-streams {
 		display: contents;
+	}
+
+	.theater-overlay {
+		position: fixed;
+		inset: 0;
+		z-index: 250;
+		background: #000;
+	}
+
+	.theater-overlay :global(.theater-video) {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+		background: #000;
+		display: block;
+	}
+
+	.theater-buttons {
+		position: absolute;
+		top: var(--space-3);
+		right: var(--space-3);
+		display: flex;
+		gap: var(--space-2);
+		z-index: 2;
+	}
+
+	.theater-buttons .btn {
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-elevated);
+		color: var(--text);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		font-size: 0.85rem;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.theater-buttons .btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--border-strong);
+	}
+
+	.theater-cameras {
+		position: absolute;
+		bottom: var(--space-3);
+		right: var(--space-3);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		max-height: 70vh;
+		overflow-y: auto;
+		z-index: 2;
+	}
+
+	.theater-cameras .tile {
+		width: 160px;
+		height: 90px;
 	}
 </style>

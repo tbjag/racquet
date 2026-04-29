@@ -1,21 +1,24 @@
 import { browser } from '$app/environment';
 
-type Mode = 'light' | 'dark' | 'system';
-type Effective = 'light' | 'dark';
+type Mode = 'light' | 'dark' | 'system' | 'retro';
+type Effective = 'light' | 'dark' | 'retro';
 
 const STORAGE_KEY = 'racquet_theme';
 
 function readMode(): Mode {
 	if (!browser) return 'system';
 	const stored = localStorage.getItem(STORAGE_KEY);
-	return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+	return stored === 'light' || stored === 'dark' || stored === 'system' || stored === 'retro'
+		? stored
+		: 'system';
 }
 
-function systemEffective(): Effective {
+function systemEffective(): 'light' | 'dark' {
 	return browser && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 function compute(mode: Mode): Effective {
+	if (mode === 'retro') return 'retro';
 	return mode === 'system' ? systemEffective() : mode;
 }
 
@@ -41,6 +44,12 @@ export function setMode(mode: Mode): void {
 
 export function cycleMode(): void {
 	const next: Mode =
-		theme.mode === 'light' ? 'dark' : theme.mode === 'dark' ? 'system' : 'light';
+		theme.mode === 'light'
+			? 'dark'
+			: theme.mode === 'dark'
+				? 'system'
+				: theme.mode === 'system'
+					? 'retro'
+					: 'light';
 	setMode(next);
 }

@@ -8,13 +8,20 @@
 				try {
 					var stored = localStorage.getItem('racquet_theme');
 					var mode =
-						stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
+						stored === 'light' ||
+						stored === 'dark' ||
+						stored === 'system' ||
+						stored === 'retro'
+							? stored
+							: 'system';
 					var effective =
-						mode === 'system'
-							? window.matchMedia('(prefers-color-scheme: dark)').matches
-								? 'dark'
-								: 'light'
-							: mode;
+						mode === 'retro'
+							? 'retro'
+							: mode === 'system'
+								? window.matchMedia('(prefers-color-scheme: dark)').matches
+									? 'dark'
+									: 'light'
+								: mode;
 					document.documentElement.dataset.theme = effective;
 				} catch (e) {
 					document.documentElement.dataset.theme = 'light';

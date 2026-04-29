@@ -8,7 +8,7 @@ test.describe('Theme', () => {
 		await expect(profile.getByTestId('theme-toggle')).toBeVisible();
 	});
 
-	test('cycles light → dark → system', async ({ page, request }) => {
+	test('cycles light → dark → system → retro', async ({ page, request }) => {
 		await page.addInitScript(() => localStorage.setItem('racquet_theme', 'light'));
 		await setupAuthenticatedUser(page, request);
 
@@ -24,6 +24,10 @@ test.describe('Theme', () => {
 
 		await toggle.click();
 		await expect(toggle).toHaveAttribute('data-theme-mode', 'system');
+
+		await toggle.click();
+		await expect(html).toHaveAttribute('data-theme', 'retro');
+		await expect(toggle).toHaveAttribute('data-theme-mode', 'retro');
 
 		await toggle.click();
 		await expect(html).toHaveAttribute('data-theme', 'light');

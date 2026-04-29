@@ -387,4 +387,159 @@ test.describe('WebRTC calls', () => {
 		await contextA.close();
 		await contextB.close();
 	});
+
+	test('theater toggle expands screen share into a full-viewport overlay', async ({
+		page,
+		request
+	}) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		await page.getByTestId('theater-toggle').click();
+
+		await expect(page.getByTestId('theater-screen-tile')).toBeVisible();
+		await expect(page.getByTestId('theater-exit')).toBeVisible();
+	});
+
+	test('pressing Escape exits theater mode', async ({ page, request }) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+		await page.getByTestId('theater-toggle').click();
+		await expect(page.getByTestId('theater-screen-tile')).toBeVisible();
+
+		await page.keyboard.press('Escape');
+
+		await expect(page.getByTestId('theater-screen-tile')).toHaveCount(0);
+		// Regular layout still has the screen tile
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible();
+	});
+
+	test('clicking theater-exit returns to the normal call stage', async ({ page, request }) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+		await page.getByTestId('theater-toggle').click();
+		await expect(page.getByTestId('theater-screen-tile')).toBeVisible();
+
+		await page.getByTestId('theater-exit').click();
+
+		await expect(page.getByTestId('theater-screen-tile')).toHaveCount(0);
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible();
+	});
+
+	test('theater mode auto-exits when the screen share ends', async ({ browser, request }) => {
+		const contextA = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const contextB = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+		await stubGetDisplayMedia(pageA);
+		await stubGetDisplayMedia(pageB);
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		await pageA.getByTestId('screen-share-button').click();
+		await expect(pageB.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		// B enters theater
+		await pageB.getByTestId('theater-toggle').click();
+		await expect(pageB.getByTestId('theater-screen-tile')).toBeVisible();
+
+		// A stops sharing — B's theater overlay should auto-exit
+		await pageA.getByTestId('screen-share-button').click();
+
+		await expect(pageB.getByTestId('theater-screen-tile')).toHaveCount(0, { timeout: 10000 });
+
+		await contextA.close();
+		await contextB.close();
+	});
+
+	test('theater overlay shows remote cameras and the toggle hides them', async ({
+		browser,
+		request
+	}) => {
+		const contextA = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const contextB = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+		await stubGetDisplayMedia(pageA);
+		await stubGetDisplayMedia(pageB);
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+		await expect(pageB.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		await pageA.getByTestId('screen-share-button').click();
+		await expect(pageB.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		await pageB.getByTestId('theater-toggle').click();
+		await expect(pageB.getByTestId('theater-screen-tile')).toBeVisible();
+
+		// B should see A's camera in the overlay panel
+		await expect(pageB.getByTestId('theater-cameras')).toBeVisible();
+		await expect(
+			pageB.getByTestId('theater-cameras').locator('[data-testid="remote-stream"]')
+		).toHaveCount(1);
+
+		// Toggle hides the panel
+		await pageB.getByTestId('theater-cameras-toggle').click();
+		await expect(pageB.getByTestId('theater-cameras')).toHaveCount(0);
+
+		// Toggle restores it
+		await pageB.getByTestId('theater-cameras-toggle').click();
+		await expect(pageB.getByTestId('theater-cameras')).toBeVisible();
+
+		await contextA.close();
+		await contextB.close();
+	});
 });
