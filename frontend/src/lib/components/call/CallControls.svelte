@@ -5,10 +5,12 @@
 		videoMuted: boolean;
 		isSharing: boolean;
 		canShare: boolean;
+		chatHidden: boolean;
 		onToggleCall: () => void;
 		onToggleMute: () => void;
 		onToggleVideo: () => void;
 		onToggleScreenShare: () => void;
+		onToggleChat: () => void;
 	};
 
 	let {
@@ -17,10 +19,12 @@
 		videoMuted,
 		isSharing,
 		canShare,
+		chatHidden,
 		onToggleCall,
 		onToggleMute,
 		onToggleVideo,
-		onToggleScreenShare
+		onToggleScreenShare,
+		onToggleChat
 	}: Props = $props();
 </script>
 
@@ -54,6 +58,13 @@
 			disabled={!canShare}
 		>
 			{isSharing ? 'Stop Sharing' : 'Share Screen'}
+		</button>
+		<button
+			data-testid="chat-toggle"
+			class={chatHidden ? 'btn toggled' : 'btn'}
+			onclick={onToggleChat}
+		>
+			{chatHidden ? 'Show Chat' : 'Hide Chat'}
 		</button>
 	{/if}
 </div>

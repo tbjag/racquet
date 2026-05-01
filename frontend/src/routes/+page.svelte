@@ -64,6 +64,7 @@
 	let webrtcManager: WebRTCManager | null = null;
 	let audioMuted = $state(false);
 	let videoMuted = $state(false);
+	let chatHidden = $state(false);
 
 	// Screen share state
 	let localScreenStream = $state<MediaStream | null>(null);
@@ -270,6 +271,7 @@
 		inCall = false;
 		audioMuted = false;
 		videoMuted = false;
+		chatHidden = false;
 	}
 
 	async function toggleScreenShare() {
@@ -343,12 +345,14 @@
 					{inCall}
 					{audioMuted}
 					{videoMuted}
+					{chatHidden}
 					isSharing={!!localScreenStream}
 					canShare={activeScreenSharerId === null || activeScreenSharerId === ownUserId}
 					onToggleCall={() => (inCall ? leaveCall() : joinCall())}
 					onToggleMute={toggleMute}
 					onToggleVideo={toggleVideo}
 					onToggleScreenShare={toggleScreenShare}
+					onToggleChat={() => (chatHidden = !chatHidden)}
 				/>
 
 				{#if inCall}
@@ -360,8 +364,10 @@
 					/>
 				{/if}
 
-				<MessageList {messages} />
-				<MessageInput onSend={handleSendMessage} />
+				{#if !chatHidden}
+					<MessageList {messages} />
+					<MessageInput onSend={handleSendMessage} />
+				{/if}
 			</div>
 		{:else}
 			<p class="select-room-prompt">Select a room to start chatting</p>

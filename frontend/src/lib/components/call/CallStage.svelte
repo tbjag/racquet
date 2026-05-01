@@ -123,6 +123,8 @@
 
 <style>
 	.call-stage {
+		flex: 1;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
@@ -169,22 +171,29 @@
 	}
 
 	.cameras {
-		display: flex;
-		flex-wrap: wrap;
+		flex: 1;
+		min-height: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		grid-auto-rows: 1fr;
 		gap: var(--space-2);
-		align-items: flex-start;
+		align-content: start;
 	}
 
 	.cameras.strip {
+		flex: 0 0 auto;
+		display: flex;
 		flex-wrap: nowrap;
 		overflow-x: auto;
+		grid-template-columns: none;
+		grid-auto-rows: auto;
 	}
 
 	.tile {
 		position: relative;
-		width: 240px;
-		height: 135px;
-		flex: 0 0 auto;
+		width: 100%;
+		height: 100%;
+		min-height: 0;
 		background: #000;
 		border-radius: var(--radius-md);
 		overflow: hidden;
@@ -193,6 +202,7 @@
 	.cameras.strip .tile {
 		width: 160px;
 		height: 90px;
+		flex: 0 0 auto;
 	}
 
 	.tile :global(video) {

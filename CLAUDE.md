@@ -201,3 +201,20 @@ Working plan: `/home/tbjag/.claude/plans/ok-i-now-want-atomic-moth.md`. Goal: tu
 - API failures: wrap callsite in `apiCall(() => fn(), { errorMessage: '...' })` and check the return for `null`. Don't add try/catch in `api.ts` itself.
 - Test IDs: keep all existing `data-testid` selectors when extracting components — they're the regression net for the 32 pre-existing Playwright specs.
 - New CSS values: always reference variables from `app.css` (`var(--bg)`, `var(--text)`, `var(--space-3)`, etc.). No hardcoded colors or spacing.
+
+## Parked work
+
+### Screen-share quality: streaming vs reading mode
+
+Full plan: `/home/tbjag/.claude/plans/is-there-a-way-lively-valley.md`.
+
+`acquireScreenStream` in `frontend/src/lib/webrtc.ts` currently calls `getDisplayMedia({ video: true, audio: true })` with no constraints, no `contentHint`, and no `RTCRtpSender.setParameters()` — browser defaults. That's a poor compromise at the extremes: smeary text when sharing a code editor, choppy playback when sharing a video.
+
+Plan, in short:
+
+1. Add a Motion / Detail toggle in `CallControls.svelte` (visible whenever `inCall`), state lives in `+page.svelte` with `localStorage.racquet_screen_share_mode` persistence (mirror the `racquet_theme` pattern from `lib/stores/theme.svelte.ts`).
+2. `acquireScreenStream(mode)` accepts the mode arg; passes `frameRate: { ideal: 30 }` for motion or `{ ideal: 5, max: 15 }` for detail to `getDisplayMedia`, and sets `videoTrack.contentHint = 'motion' | 'detail'` on the captured track.
+3. New `webrtcManager.setScreenShareMode(mode)` updates `contentHint` live on the active screen track without renegotiating, so flipping the toggle mid-share works.
+4. Optional layer 3 — `RTCRtpSender.setParameters()` with `maxBitrate` / `scaleResolutionDownBy` per-peer — held back unless empirical results from layers 1–2 aren't enough. Adds per-peer iteration and browser-quirk handling.
+
+No backend changes; receivers don't need to know. Verification is mostly manual (Chrome + Edge, share a video then share a code editor, watch `chrome://webrtc-internals` for `contentHint`); add one UI smoke test in `frontend/tests/webrtc.spec.ts` for the mode toggle visibility/no-regression — encoder behavior can't be asserted because the test stub delegates `getDisplayMedia` to `getUserMedia`.

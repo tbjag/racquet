@@ -491,6 +491,63 @@ test.describe('WebRTC calls', () => {
 		await contextB.close();
 	});
 
+	test('chat-toggle hides and restores message list during a call', async ({
+		page,
+		request
+	}) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		// Toggle is hidden until the user is in a call
+		await expect(page.getByTestId('chat-toggle')).toHaveCount(0);
+
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('local-video')).toBeVisible();
+
+		// Chat is visible by default
+		await expect(page.getByTestId('message-list')).toBeVisible();
+
+		const chatToggle = page.getByTestId('chat-toggle');
+		await expect(chatToggle).toBeVisible();
+		await expect(chatToggle).toHaveText('Hide Chat');
+
+		// Hide
+		await chatToggle.click();
+		await expect(page.getByTestId('message-list')).toHaveCount(0);
+		await expect(chatToggle).toHaveText('Show Chat');
+
+		// Restore
+		await chatToggle.click();
+		await expect(page.getByTestId('message-list')).toBeVisible();
+		await expect(chatToggle).toHaveText('Hide Chat');
+	});
+
+	test('chatHidden resets when leaving the call', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('chat-toggle').click();
+		await expect(page.getByTestId('message-list')).toHaveCount(0);
+
+		// Leave the call — chat returns automatically
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('message-list')).toBeVisible();
+
+		// Re-join — chat is visible (state was reset)
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('message-list')).toBeVisible();
+		await expect(page.getByTestId('chat-toggle')).toHaveText('Hide Chat');
+	});
+
 	test('theater overlay shows remote cameras and the toggle hides them', async ({
 		browser,
 		request
