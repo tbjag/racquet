@@ -548,6 +548,74 @@ test.describe('WebRTC calls', () => {
 		await expect(page.getByTestId('chat-toggle')).toHaveText('Hide Chat');
 	});
 
+	test('screen-share-mode toggle is hidden until in-call, defaults to motion, persists across reload', async ({
+		page,
+		request
+	}) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		// Hidden when not in a call
+		await expect(page.getByTestId('screen-share-mode-motion')).toHaveCount(0);
+		await expect(page.getByTestId('screen-share-mode-detail')).toHaveCount(0);
+
+		await page.getByTestId('call-button').click();
+
+		const motion = page.getByTestId('screen-share-mode-motion');
+		const detail = page.getByTestId('screen-share-mode-detail');
+
+		// Default = motion
+		await expect(motion).toBeVisible();
+		await expect(detail).toBeVisible();
+		await expect(motion).toHaveAttribute('aria-pressed', 'true');
+		await expect(detail).toHaveAttribute('aria-pressed', 'false');
+
+		// Switch to detail
+		await detail.click();
+		await expect(detail).toHaveAttribute('aria-pressed', 'true');
+		await expect(motion).toHaveAttribute('aria-pressed', 'false');
+
+		// Persists across reload
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('screen-share-mode-detail')).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+	});
+
+	test('mode toggle does not break the screen-share flow when switched mid-share', async ({
+		page,
+		request
+	}) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+
+		await page.getByTestId('screen-share-mode-detail').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible();
+
+		// Mid-share switch — share keeps running
+		await page.getByTestId('screen-share-mode-motion').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible();
+
+		// Stop still works
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toHaveCount(0);
+	});
+
 	test('theater overlay shows remote cameras and the toggle hides them', async ({
 		browser,
 		request

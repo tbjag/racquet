@@ -20,6 +20,11 @@
 	import type { RemotePeer } from '$lib/components/call/CallStage.svelte';
 	import ConnectionBanner from '$lib/components/chrome/ConnectionBanner.svelte';
 	import { connection } from '$lib/stores/connection.svelte';
+	import {
+		screenShareMode,
+		setScreenShareMode,
+		type ScreenShareMode
+	} from '$lib/stores/screenShareMode.svelte';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
 	type Message = {
@@ -282,7 +287,7 @@
 			return;
 		}
 
-		const stream = await webrtcManager.acquireScreenStream();
+		const stream = await webrtcManager.acquireScreenStream(screenShareMode.mode);
 		if (!stream) return; // user cancelled or capture failed
 		// Notify peers BEFORE renegotiating so receivers can classify the
 		// incoming screen tracks (stream id known) when ontrack fires.
@@ -296,6 +301,12 @@
 		ws.sendScreenShareStop(selectedRoomId);
 		localScreenStream = null;
 		await webrtcManager.stopScreenShare();
+	}
+
+	function changeScreenShareMode(mode: ScreenShareMode) {
+		setScreenShareMode(mode);
+		// Live update the encoder hint if a share is in progress.
+		webrtcManager?.setScreenShareMode(mode);
 	}
 
 	function toggleMute() {
@@ -346,6 +357,7 @@
 					{audioMuted}
 					{videoMuted}
 					{chatHidden}
+					screenShareMode={screenShareMode.mode}
 					isSharing={!!localScreenStream}
 					canShare={activeScreenSharerId === null || activeScreenSharerId === ownUserId}
 					onToggleCall={() => (inCall ? leaveCall() : joinCall())}
@@ -353,6 +365,7 @@
 					onToggleVideo={toggleVideo}
 					onToggleScreenShare={toggleScreenShare}
 					onToggleChat={() => (chatHidden = !chatHidden)}
+					onChangeScreenShareMode={changeScreenShareMode}
 				/>
 
 				{#if inCall}

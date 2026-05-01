@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { ScreenShareMode } from '$lib/stores/screenShareMode.svelte';
+
 	type Props = {
 		inCall: boolean;
 		audioMuted: boolean;
@@ -6,11 +8,13 @@
 		isSharing: boolean;
 		canShare: boolean;
 		chatHidden: boolean;
+		screenShareMode: ScreenShareMode;
 		onToggleCall: () => void;
 		onToggleMute: () => void;
 		onToggleVideo: () => void;
 		onToggleScreenShare: () => void;
 		onToggleChat: () => void;
+		onChangeScreenShareMode: (mode: ScreenShareMode) => void;
 	};
 
 	let {
@@ -20,11 +24,13 @@
 		isSharing,
 		canShare,
 		chatHidden,
+		screenShareMode,
 		onToggleCall,
 		onToggleMute,
 		onToggleVideo,
 		onToggleScreenShare,
-		onToggleChat
+		onToggleChat,
+		onChangeScreenShareMode
 	}: Props = $props();
 </script>
 
@@ -59,6 +65,26 @@
 		>
 			{isSharing ? 'Stop Sharing' : 'Share Screen'}
 		</button>
+		<div class="mode-group" role="group" aria-label="Screen share mode">
+			<button
+				data-testid="screen-share-mode-motion"
+				class={screenShareMode === 'motion' ? 'btn seg active' : 'btn seg'}
+				aria-pressed={screenShareMode === 'motion'}
+				onclick={() => onChangeScreenShareMode('motion')}
+				title="Optimize for motion (30 fps, smooth playback)"
+			>
+				Motion
+			</button>
+			<button
+				data-testid="screen-share-mode-detail"
+				class={screenShareMode === 'detail' ? 'btn seg active' : 'btn seg'}
+				aria-pressed={screenShareMode === 'detail'}
+				onclick={() => onChangeScreenShareMode('detail')}
+				title="Optimize for detail (low fps, sharp text)"
+			>
+				Detail
+			</button>
+		</div>
 		<button
 			data-testid="chat-toggle"
 			class={chatHidden ? 'btn toggled' : 'btn'}
@@ -120,5 +146,31 @@
 		background: var(--danger-bg);
 		color: var(--danger);
 		border-color: var(--danger);
+	}
+
+	.mode-group {
+		display: inline-flex;
+	}
+
+	.mode-group .btn.seg {
+		border-radius: 0;
+	}
+
+	.mode-group .btn.seg:first-child {
+		border-top-left-radius: var(--radius-sm);
+		border-bottom-left-radius: var(--radius-sm);
+	}
+
+	.mode-group .btn.seg:last-child {
+		border-top-right-radius: var(--radius-sm);
+		border-bottom-right-radius: var(--radius-sm);
+		margin-left: -1px;
+	}
+
+	.mode-group .btn.seg.active {
+		background: var(--accent);
+		color: var(--accent-text);
+		border-color: var(--accent);
+		z-index: 1;
 	}
 </style>

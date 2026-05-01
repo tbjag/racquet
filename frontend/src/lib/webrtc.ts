@@ -77,10 +77,16 @@ export class WebRTCManager {
 	/// Acquires a display-media stream but does not yet add it to peers.
 	/// Caller should send screen_share_start (so receivers know the stream id)
 	/// then call broadcastScreenStream() to renegotiate.
-	async acquireScreenStream(): Promise<MediaStream | null> {
+	///
+	/// `mode` tunes the encoder for the content type:
+	///   - 'motion' (default): 30 fps ideal, contentHint='motion' — for videos / gameplay.
+	///   - 'detail': 5–15 fps, contentHint='detail' — for code / docs (sharper text,
+	///     bitrate spent on per-frame quality not temporal smoothness).
+	async acquireScreenStream(mode: 'motion' | 'detail' = 'motion'): Promise<MediaStream | null> {
+		const frameRate = mode === 'detail' ? { ideal: 5, max: 15 } : { ideal: 30 };
 		try {
 			this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-				video: true,
+				video: { frameRate },
 				audio: true
 			});
 		} catch {
@@ -88,15 +94,24 @@ export class WebRTCManager {
 			return null;
 		}
 
-		// User-initiated stop (browser's "Stop sharing" bar) ends the video track.
 		const videoTrack = this.screenStream.getVideoTracks()[0];
 		if (videoTrack) {
+			videoTrack.contentHint = mode;
+			// User-initiated stop (browser's "Stop sharing" bar) ends the video track.
 			videoTrack.onended = () => {
 				if (this.onScreenShareEnded) this.onScreenShareEnded();
 			};
 		}
 
 		return this.screenStream;
+	}
+
+	/// Live-update the encoder hint on the active screen track. No renegotiation
+	/// needed — receivers don't see anything change at the signaling layer.
+	setScreenShareMode(mode: 'motion' | 'detail'): void {
+		if (!this.screenStream) return;
+		const videoTrack = this.screenStream.getVideoTracks()[0];
+		if (videoTrack) videoTrack.contentHint = mode;
 	}
 
 	async broadcastScreenStream(): Promise<void> {
