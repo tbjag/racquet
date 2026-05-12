@@ -667,4 +667,229 @@ test.describe('WebRTC calls', () => {
 		await contextA.close();
 		await contextB.close();
 	});
+
+	test('audio-smoothing toggle is hidden until in-call, defaults on, cycles on click', async ({
+		page,
+		request
+	}) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		await expect(page.getByTestId('audio-smoothing-toggle')).toHaveCount(0);
+
+		await page.getByTestId('call-button').click();
+
+		const toggle = page.getByTestId('audio-smoothing-toggle');
+		await expect(toggle).toBeVisible();
+		await expect(toggle).toHaveText('Smoothing On');
+
+		await toggle.click();
+		await expect(toggle).toHaveText('Smoothing Off');
+
+		await toggle.click();
+		await expect(toggle).toHaveText('Smoothing On');
+	});
+
+	test('audio-smoothing choice persists across reload', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+
+		await page.getByTestId('audio-smoothing-toggle').click();
+		await expect(page.getByTestId('audio-smoothing-toggle')).toHaveText('Smoothing Off');
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+
+		await expect(page.getByTestId('audio-smoothing-toggle')).toHaveText('Smoothing Off');
+	});
+
+	test('screen-audio volume slider is hidden until sharing, then defaults to 1', async ({
+		page,
+		request
+	}) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+
+		// Hidden before sharing
+		await expect(page.getByTestId('screen-audio-volume')).toHaveCount(0);
+
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		const slider = page.getByTestId('screen-audio-volume');
+		await expect(slider).toBeVisible();
+		await expect(slider).toHaveValue('1');
+	});
+
+	test('screen-audio volume persists across reload and re-share', async ({ page, request }) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		const slider = page.getByTestId('screen-audio-volume');
+		await slider.fill('0.3');
+		await expect(slider).toHaveValue('0.3');
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		await expect(page.getByTestId('screen-audio-volume')).toHaveValue('0.3');
+	});
+});
+
+test.describe('click-to-focus tiles', () => {
+	test('default layout is equal grid with no strip', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await expect(page.getByTestId('local-video')).toBeVisible();
+
+		await expect(page.locator('[data-testid="tile-strip"]')).toHaveCount(0);
+		await expect(page.getByTestId('tile-wrapper-cam:local')).toHaveAttribute(
+			'aria-pressed',
+			'false'
+		);
+	});
+
+	test('clicking the screen-share tile focuses it; clicking again unfocuses', async ({
+		page,
+		request
+	}) => {
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		const screenWrapper = page.getByTestId('tile-wrapper-screen:local');
+		await expect(screenWrapper).toHaveAttribute('aria-pressed', 'false');
+
+		await screenWrapper.click();
+
+		await expect(screenWrapper).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByTestId('tile-strip')).toBeVisible();
+		// Local camera moved into the strip and is still rendered
+		await expect(page.getByTestId('local-video')).toBeVisible();
+
+		await screenWrapper.click();
+
+		await expect(screenWrapper).toHaveAttribute('aria-pressed', 'false');
+		await expect(page.locator('[data-testid="tile-strip"]')).toHaveCount(0);
+	});
+
+	test('clicking theater on a focused screen tile does not unfocus it', async ({
+		page,
+		request
+	}) => {
+		// Guards against a regression where the theater button's click bubbles
+		// up to the wrapper and toggles focus off underneath the overlay.
+		await stubGetDisplayMedia(page);
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+		await page.getByTestId('call-button').click();
+		await page.getByTestId('screen-share-button').click();
+		await expect(page.getByTestId('screen-share-tile')).toBeVisible({ timeout: 10000 });
+
+		const screenWrapper = page.getByTestId('tile-wrapper-screen:local');
+		await screenWrapper.click();
+		await expect(screenWrapper).toHaveAttribute('aria-pressed', 'true');
+
+		await page.getByTestId('theater-toggle').click();
+		await expect(page.getByTestId('theater-screen-tile')).toBeVisible();
+
+		await page.getByTestId('theater-exit').click();
+		await expect(page.getByTestId('theater-screen-tile')).toHaveCount(0);
+		// Still focused after exiting theater
+		await expect(screenWrapper).toHaveAttribute('aria-pressed', 'true');
+		await expect(page.getByTestId('tile-strip')).toBeVisible();
+	});
+
+	test('focused tile auto-unfocuses when the underlying stream goes away', async ({
+		browser,
+		request
+	}) => {
+		const contextA = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const contextB = await browser.newContext({ permissions: ['camera', 'microphone'] });
+		const pageA = await contextA.newPage();
+		const pageB = await contextB.newPage();
+
+		const { token: tokenA } = await setupAuthenticatedUser(pageA, request);
+		await setupAuthenticatedUser(pageB, request);
+
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, tokenA, roomName);
+
+		await pageA.reload();
+		await pageB.reload();
+		await selectRoom(pageA, roomName);
+		await selectRoom(pageB, roomName);
+
+		await pageA.getByTestId('call-button').click();
+		await pageB.getByTestId('call-button').click();
+		await expect(pageA.locator('[data-testid="remote-stream"]')).toHaveCount(1, {
+			timeout: 10000
+		});
+
+		// A focuses B's camera tile (the only non-local camera wrapper)
+		const remoteWrapper = pageA
+			.locator('[data-testid^="tile-wrapper-cam:"]')
+			.filter({ hasNot: pageA.getByTestId('local-video') });
+		await expect(remoteWrapper).toHaveCount(1);
+		await remoteWrapper.click();
+		await expect(pageA.getByTestId('tile-strip')).toBeVisible();
+
+		// B leaves the call; A's focused tile should disappear and layout revert.
+		await pageB.getByTestId('call-button').click();
+
+		await expect(pageA.locator('[data-testid="remote-stream"]')).toHaveCount(0, {
+			timeout: 10000
+		});
+		await expect(pageA.locator('[data-testid="tile-strip"]')).toHaveCount(0);
+		await expect(pageA.getByTestId('tile-wrapper-cam:local')).toHaveAttribute(
+			'aria-pressed',
+			'false'
+		);
+
+		await contextA.close();
+		await contextB.close();
+	});
 });

@@ -18,6 +18,14 @@ export class WebRTCManager {
 	private onPeerDisconnected: (userId: string) => void;
 	private onRemoteScreenStream?: (userId: string, username: string, stream: MediaStream) => void;
 	private onScreenShareEnded?: () => void;
+	private audioContext: AudioContext | null = null;
+	private compressor: DynamicsCompressorNode | null = null;
+	private audioDestination: MediaStreamAudioDestinationNode | null = null;
+	private processedAudioTrack: MediaStreamTrack | null = null;
+	private screenAudioContext: AudioContext | null = null;
+	private screenGainNode: GainNode | null = null;
+	private screenAudioDestination: MediaStreamAudioDestinationNode | null = null;
+	private screenProcessedAudioTrack: MediaStreamTrack | null = null;
 
 	constructor(
 		ws: WebSocketClient,
@@ -35,19 +43,26 @@ export class WebRTCManager {
 		this.onScreenShareEnded = onScreenShareEnded;
 	}
 
-	async joinCall(): Promise<MediaStream | null> {
+	async joinCall(audioSmoothingEnabled: boolean = true): Promise<MediaStream | null> {
+		// Browser DSP defaults are off in Chrome unless explicitly requested.
+		const audioConstraints: MediaTrackConstraints = {
+			echoCancellation: true,
+			noiseSuppression: true,
+			autoGainControl: true
+		};
+
 		// Try audio+video, fall back to audio-only, then no media
 		// (Windows often gives exclusive camera access to one browser)
 		try {
 			this.localStream = await navigator.mediaDevices.getUserMedia({
-				audio: true,
+				audio: audioConstraints,
 				video: true
 			});
 		} catch {
 			try {
 				console.warn('Could not access camera, falling back to audio-only');
 				this.localStream = await navigator.mediaDevices.getUserMedia({
-					audio: true,
+					audio: audioConstraints,
 					video: false
 				});
 			} catch {
@@ -55,7 +70,73 @@ export class WebRTCManager {
 				this.localStream = null;
 			}
 		}
+
+		if (this.localStream && this.localStream.getAudioTracks().length > 0) {
+			await this.setupAudioPipeline(audioSmoothingEnabled);
+		}
+
 		return this.localStream;
+	}
+
+	private async setupAudioPipeline(enabled: boolean): Promise<void> {
+		if (!this.localStream) return;
+		try {
+			const ctx = new AudioContext();
+			// AudioContext can land in 'suspended' state; resume() is a no-op when running.
+			if (ctx.state === 'suspended') {
+				try {
+					await ctx.resume();
+				} catch {
+					// Resume can reject if no user gesture preceded; the graph still
+					// runs once the browser unlocks audio on the next gesture.
+				}
+			}
+			const source = ctx.createMediaStreamSource(this.localStream);
+			const compressor = ctx.createDynamicsCompressor();
+			this.applyCompressorParams(compressor, enabled);
+			const dest = ctx.createMediaStreamDestination();
+			source.connect(compressor).connect(dest);
+
+			this.audioContext = ctx;
+			this.compressor = compressor;
+			this.audioDestination = dest;
+			this.processedAudioTrack = dest.stream.getAudioTracks()[0] ?? null;
+		} catch (e) {
+			console.warn('Could not set up audio processing pipeline; sending raw mic audio', e);
+		}
+	}
+
+	private applyCompressorParams(compressor: DynamicsCompressorNode, enabled: boolean): void {
+		const now = compressor.context.currentTime;
+		if (enabled) {
+			compressor.threshold.setValueAtTime(-24, now);
+			compressor.knee.setValueAtTime(30, now);
+			compressor.ratio.setValueAtTime(3, now);
+			compressor.attack.setValueAtTime(0.003, now);
+			compressor.release.setValueAtTime(0.25, now);
+		} else {
+			compressor.threshold.setValueAtTime(0, now);
+			compressor.knee.setValueAtTime(0, now);
+			compressor.ratio.setValueAtTime(1, now);
+			compressor.attack.setValueAtTime(0.003, now);
+			compressor.release.setValueAtTime(0.25, now);
+		}
+	}
+
+	/// Live-update the compressor between active and pass-through. No
+	/// renegotiation — the same processed track stays on the wire.
+	setAudioSmoothing(enabled: boolean): void {
+		if (this.compressor) {
+			this.applyCompressorParams(this.compressor, enabled);
+		}
+	}
+
+	/// What goes on the wire for outbound audio: processed if the pipeline
+	/// is up, otherwise the raw mic track.
+	private getOutboundAudioTrack(): MediaStreamTrack | null {
+		if (this.processedAudioTrack) return this.processedAudioTrack;
+		const raw = this.localStream?.getAudioTracks()[0];
+		return raw ?? null;
 	}
 
 	getLocalStream(): MediaStream | null {
@@ -82,7 +163,10 @@ export class WebRTCManager {
 	///   - 'motion' (default): 30 fps ideal, contentHint='motion' — for videos / gameplay.
 	///   - 'detail': 5–15 fps, contentHint='detail' — for code / docs (sharper text,
 	///     bitrate spent on per-frame quality not temporal smoothness).
-	async acquireScreenStream(mode: 'motion' | 'detail' = 'motion'): Promise<MediaStream | null> {
+	async acquireScreenStream(
+		mode: 'motion' | 'detail' = 'motion',
+		initialVolume: number = 1
+	): Promise<MediaStream | null> {
 		const frameRate = mode === 'detail' ? { ideal: 5, max: 15 } : { ideal: 30 };
 		try {
 			this.screenStream = await navigator.mediaDevices.getDisplayMedia({
@@ -103,7 +187,58 @@ export class WebRTCManager {
 			};
 		}
 
+		if (this.screenStream.getAudioTracks().length > 0) {
+			this.setupScreenAudioPipeline(initialVolume);
+		}
+
 		return this.screenStream;
+	}
+
+	private setupScreenAudioPipeline(initialVolume: number): void {
+		if (!this.screenStream) return;
+		try {
+			const ctx = new AudioContext();
+			const source = ctx.createMediaStreamSource(this.screenStream);
+			const gain = ctx.createGain();
+			gain.gain.setValueAtTime(initialVolume, ctx.currentTime);
+			const dest = ctx.createMediaStreamDestination();
+			source.connect(gain).connect(dest);
+
+			this.screenAudioContext = ctx;
+			this.screenGainNode = gain;
+			this.screenAudioDestination = dest;
+			this.screenProcessedAudioTrack = dest.stream.getAudioTracks()[0] ?? null;
+		} catch (e) {
+			console.warn('Could not set up screen audio pipeline; sending raw screen audio', e);
+		}
+	}
+
+	/// True if the active screen share is carrying audio (i.e. the user opted
+	/// in via the browser picker). UI uses this to gate the volume slider.
+	hasScreenAudio(): boolean {
+		return !!this.screenStream && this.screenStream.getAudioTracks().length > 0;
+	}
+
+	/// Live-update outgoing screen-audio gain. v in [0, 1]. No renegotiation —
+	/// the same processed track stays on the wire, only its level changes.
+	setScreenAudioVolume(v: number): void {
+		if (!this.screenGainNode || !this.screenAudioContext) return;
+		const clamped = Math.max(0, Math.min(1, v));
+		this.screenGainNode.gain.setValueAtTime(clamped, this.screenAudioContext.currentTime);
+	}
+
+	/// What goes on the wire for screen sharing: video tracks plus either the
+	/// gain-processed audio track or (if no audio was captured / pipeline
+	/// failed) the raw audio tracks.
+	private getOutboundScreenTracks(): MediaStreamTrack[] {
+		if (!this.screenStream) return [];
+		const tracks: MediaStreamTrack[] = [...this.screenStream.getVideoTracks()];
+		if (this.screenProcessedAudioTrack) {
+			tracks.push(this.screenProcessedAudioTrack);
+		} else {
+			tracks.push(...this.screenStream.getAudioTracks());
+		}
+		return tracks;
 	}
 
 	/// Live-update the encoder hint on the active screen track. No renegotiation
@@ -116,8 +251,9 @@ export class WebRTCManager {
 
 	async broadcastScreenStream(): Promise<void> {
 		if (!this.screenStream) return;
+		const tracks = this.getOutboundScreenTracks();
 		for (const [userId, pc] of this.peers) {
-			for (const track of this.screenStream.getTracks()) {
+			for (const track of tracks) {
 				pc.addTrack(track, this.screenStream);
 			}
 			await this.renegotiate(userId, pc);
@@ -127,20 +263,29 @@ export class WebRTCManager {
 	async stopScreenShare(): Promise<void> {
 		if (!this.screenStream) return;
 
-		const screenTracks = this.screenStream.getTracks();
+		const sentTracks = this.getOutboundScreenTracks();
 		for (const [userId, pc] of this.peers) {
 			for (const sender of pc.getSenders()) {
-				if (sender.track && screenTracks.includes(sender.track)) {
+				if (sender.track && sentTracks.includes(sender.track)) {
 					pc.removeTrack(sender);
 				}
 			}
 			await this.renegotiate(userId, pc);
 		}
 
-		for (const track of screenTracks) {
+		for (const track of this.screenStream.getTracks()) {
 			track.stop();
 		}
 		this.screenStream = null;
+
+		this.screenProcessedAudioTrack?.stop();
+		this.screenProcessedAudioTrack = null;
+		this.screenAudioDestination = null;
+		this.screenGainNode = null;
+		if (this.screenAudioContext) {
+			void this.screenAudioContext.close();
+			this.screenAudioContext = null;
+		}
 	}
 
 	async handlePeersInRoom(users: Array<{ userId: string; username: string }>): Promise<void> {
@@ -241,20 +386,44 @@ export class WebRTCManager {
 			}
 			this.screenStream = null;
 		}
+
+		this.processedAudioTrack?.stop();
+		this.processedAudioTrack = null;
+		this.audioDestination = null;
+		this.compressor = null;
+		if (this.audioContext) {
+			void this.audioContext.close();
+			this.audioContext = null;
+		}
+
+		this.screenProcessedAudioTrack?.stop();
+		this.screenProcessedAudioTrack = null;
+		this.screenAudioDestination = null;
+		this.screenGainNode = null;
+		if (this.screenAudioContext) {
+			void this.screenAudioContext.close();
+			this.screenAudioContext = null;
+		}
 	}
 
 	private createPeerConnection(remoteUserId: string, remoteUsername: string): RTCPeerConnection {
 		const pc = new RTCPeerConnection(RTC_CONFIG);
 
-		// Add local tracks
+		// Add local tracks. Audio goes through the compressor pipeline if it's
+		// up; video tracks come straight from the raw stream.
 		if (this.localStream) {
-			for (const track of this.localStream.getTracks()) {
+			for (const track of this.localStream.getVideoTracks()) {
 				pc.addTrack(track, this.localStream);
 			}
+			const audioTrack = this.getOutboundAudioTrack();
+			if (audioTrack) {
+				pc.addTrack(audioTrack, this.localStream);
+			}
 		}
-		// Late-joining peers should also receive the screen if a share is active
+		// Late-joining peers should also receive the screen if a share is active.
+		// Use the gain-processed audio when available (matches what active peers see).
 		if (this.screenStream) {
-			for (const track of this.screenStream.getTracks()) {
+			for (const track of this.getOutboundScreenTracks()) {
 				pc.addTrack(track, this.screenStream);
 			}
 		}

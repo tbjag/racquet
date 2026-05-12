@@ -9,12 +9,17 @@
 		canShare: boolean;
 		chatHidden: boolean;
 		screenShareMode: ScreenShareMode;
+		audioSmoothingEnabled: boolean;
+		hasScreenAudio: boolean;
+		screenAudioVolume: number;
 		onToggleCall: () => void;
 		onToggleMute: () => void;
 		onToggleVideo: () => void;
 		onToggleScreenShare: () => void;
 		onToggleChat: () => void;
 		onChangeScreenShareMode: (mode: ScreenShareMode) => void;
+		onToggleAudioSmoothing: () => void;
+		onChangeScreenAudioVolume: (v: number) => void;
 	};
 
 	let {
@@ -25,12 +30,17 @@
 		canShare,
 		chatHidden,
 		screenShareMode,
+		audioSmoothingEnabled,
+		hasScreenAudio,
+		screenAudioVolume,
 		onToggleCall,
 		onToggleMute,
 		onToggleVideo,
 		onToggleScreenShare,
 		onToggleChat,
-		onChangeScreenShareMode
+		onChangeScreenShareMode,
+		onToggleAudioSmoothing,
+		onChangeScreenAudioVolume
 	}: Props = $props();
 </script>
 
@@ -58,6 +68,14 @@
 			{videoMuted ? 'Video On' : 'Video Off'}
 		</button>
 		<button
+			data-testid="audio-smoothing-toggle"
+			class={!audioSmoothingEnabled ? 'btn toggled' : 'btn'}
+			onclick={onToggleAudioSmoothing}
+			title="Even out volume between speakers"
+		>
+			{audioSmoothingEnabled ? 'Smoothing On' : 'Smoothing Off'}
+		</button>
+		<button
 			data-testid="screen-share-button"
 			class={isSharing ? 'btn toggled' : 'btn'}
 			onclick={onToggleScreenShare}
@@ -65,6 +83,21 @@
 		>
 			{isSharing ? 'Stop Sharing' : 'Share Screen'}
 		</button>
+		{#if isSharing && hasScreenAudio}
+			<label class="volume-control" title="System audio volume">
+				<span aria-hidden="true">🔊</span>
+				<input
+					data-testid="screen-audio-volume"
+					type="range"
+					min="0"
+					max="1"
+					step="0.01"
+					value={screenAudioVolume}
+					oninput={(e) =>
+						onChangeScreenAudioVolume(Number((e.currentTarget as HTMLInputElement).value))}
+				/>
+			</label>
+		{/if}
 		<div class="mode-group" role="group" aria-label="Screen share mode">
 			<button
 				data-testid="screen-share-mode-motion"
@@ -172,5 +205,21 @@
 		color: var(--accent-text);
 		border-color: var(--accent);
 		z-index: 1;
+	}
+
+	.volume-control {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		padding: 0 var(--space-2);
+		background: var(--bg-elevated);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		font-size: 0.85rem;
+	}
+
+	.volume-control input[type='range'] {
+		width: 100px;
+		accent-color: var(--accent);
 	}
 </style>

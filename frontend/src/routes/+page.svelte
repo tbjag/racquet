@@ -25,6 +25,11 @@
 		setScreenShareMode,
 		type ScreenShareMode
 	} from '$lib/stores/screenShareMode.svelte';
+	import { audioSmoothing, setAudioSmoothing } from '$lib/stores/audioSmoothing.svelte';
+	import {
+		screenAudioVolume,
+		setScreenAudioVolume
+	} from '$lib/stores/screenAudioVolume.svelte';
 
 	type Room = { id: string; name: string; created_by: string; created_at: string };
 	type Message = {
@@ -73,6 +78,7 @@
 
 	// Screen share state
 	let localScreenStream = $state<MediaStream | null>(null);
+	let hasLocalScreenAudio = $state(false);
 	let activeScreenSharerId = $state<string | null>(null);
 	let remoteScreenStream = $state<{ userId: string; username: string; stream: MediaStream } | null>(null);
 
@@ -247,7 +253,7 @@
 			}
 		);
 
-		localStream = await webrtcManager.joinCall();
+		localStream = await webrtcManager.joinCall(audioSmoothing.enabled);
 		inCall = true;
 		audioMuted = false;
 		videoMuted = false;
@@ -272,6 +278,7 @@
 		localStream = null;
 		remoteStreams = [];
 		localScreenStream = null;
+		hasLocalScreenAudio = false;
 		remoteScreenStream = null;
 		inCall = false;
 		audioMuted = false;
@@ -287,12 +294,16 @@
 			return;
 		}
 
-		const stream = await webrtcManager.acquireScreenStream(screenShareMode.mode);
+		const stream = await webrtcManager.acquireScreenStream(
+			screenShareMode.mode,
+			screenAudioVolume.value
+		);
 		if (!stream) return; // user cancelled or capture failed
 		// Notify peers BEFORE renegotiating so receivers can classify the
 		// incoming screen tracks (stream id known) when ontrack fires.
 		ws.sendScreenShareStart(selectedRoomId, stream.id);
 		localScreenStream = stream;
+		hasLocalScreenAudio = webrtcManager.hasScreenAudio();
 		await webrtcManager.broadcastScreenStream();
 	}
 
@@ -300,6 +311,7 @@
 		if (!webrtcManager || !ws || !selectedRoomId) return;
 		ws.sendScreenShareStop(selectedRoomId);
 		localScreenStream = null;
+		hasLocalScreenAudio = false;
 		await webrtcManager.stopScreenShare();
 	}
 
@@ -307,6 +319,17 @@
 		setScreenShareMode(mode);
 		// Live update the encoder hint if a share is in progress.
 		webrtcManager?.setScreenShareMode(mode);
+	}
+
+	function toggleAudioSmoothing() {
+		const next = !audioSmoothing.enabled;
+		setAudioSmoothing(next);
+		webrtcManager?.setAudioSmoothing(next);
+	}
+
+	function changeScreenAudioVolume(v: number) {
+		setScreenAudioVolume(v);
+		webrtcManager?.setScreenAudioVolume(v);
 	}
 
 	function toggleMute() {
@@ -358,6 +381,9 @@
 					{videoMuted}
 					{chatHidden}
 					screenShareMode={screenShareMode.mode}
+					audioSmoothingEnabled={audioSmoothing.enabled}
+					hasScreenAudio={hasLocalScreenAudio}
+					screenAudioVolume={screenAudioVolume.value}
 					isSharing={!!localScreenStream}
 					canShare={activeScreenSharerId === null || activeScreenSharerId === ownUserId}
 					onToggleCall={() => (inCall ? leaveCall() : joinCall())}
@@ -366,6 +392,8 @@
 					onToggleScreenShare={toggleScreenShare}
 					onToggleChat={() => (chatHidden = !chatHidden)}
 					onChangeScreenShareMode={changeScreenShareMode}
+					onToggleAudioSmoothing={toggleAudioSmoothing}
+					onChangeScreenAudioVolume={changeScreenAudioVolume}
 				/>
 
 				{#if inCall}
