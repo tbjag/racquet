@@ -143,7 +143,7 @@ pub async fn get_messages(
     before: Option<&str>,
     limit: i64,
 ) -> Result<Vec<MessageWithUsername>, sqlx::Error> {
-    let limit = limit.min(100).max(1);
+    let limit = limit.clamp(1, 100);
 
     match before {
         Some(before_id) => {

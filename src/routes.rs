@@ -261,7 +261,7 @@ pub async fn get_messages(
     Path(room_id): Path<String>,
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let limit = query.limit.unwrap_or(50).min(100).max(1);
+    let limit = query.limit.unwrap_or(50).clamp(1, 100);
     let messages =
         models::get_messages(&state.db, &room_id, query.before.as_deref(), limit).await?;
     tracing::debug!(room_id = %room_id, count = messages.len(), limit, "messages fetched");

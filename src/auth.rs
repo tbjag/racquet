@@ -79,9 +79,8 @@ impl axum::extract::FromRequestParts<crate::AppState> for AuthUser {
                 AppError::Unauthorized("invalid authorization header format".to_string())
             })?;
 
-            let claims = verify_token(token, &jwt_secret).map_err(|e| {
+            let claims = verify_token(token, &jwt_secret).inspect_err(|_e| {
                 tracing::warn!("token verification failed");
-                e
             })?;
 
             Ok(AuthUser {

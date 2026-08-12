@@ -14,6 +14,12 @@ pub struct ConnectionManager {
     screen_sharers: RwLock<HashMap<RoomId, UserId>>,
 }
 
+impl Default for ConnectionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
@@ -88,18 +94,18 @@ impl ConnectionManager {
         if let Some(ref username) = username {
             tracing::info!(room_id = %room_id, user_id = %user_id, username = %username, "user left room");
         }
-        if let Some(username) = username {
-            if let Some(room) = rooms.get(room_id) {
-                let notification = serde_json::json!({
-                    "type": "user_left",
-                    "room_id": room_id,
-                    "user_id": user_id,
-                    "username": username,
-                });
-                let msg = axum::extract::ws::Message::Text(notification.to_string().into());
-                for user in room.values() {
-                    let _ = user.sender.send(msg.clone());
-                }
+        if let Some(username) = username
+            && let Some(room) = rooms.get(room_id)
+        {
+            let notification = serde_json::json!({
+                "type": "user_left",
+                "room_id": room_id,
+                "user_id": user_id,
+                "username": username,
+            });
+            let msg = axum::extract::ws::Message::Text(notification.to_string().into());
+            for user in room.values() {
+                let _ = user.sender.send(msg.clone());
             }
         }
     }
@@ -133,29 +139,29 @@ impl ConnectionManager {
                 None
             };
 
-            if let Some(username) = username {
-                if let Some(room) = rooms.get(room_id) {
-                    let notification = serde_json::json!({
-                        "type": "user_left",
+            if let Some(username) = username
+                && let Some(room) = rooms.get(room_id)
+            {
+                let notification = serde_json::json!({
+                    "type": "user_left",
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "username": username,
+                });
+                let msg = axum::extract::ws::Message::Text(notification.to_string().into());
+                for user in room.values() {
+                    let _ = user.sender.send(msg.clone());
+                }
+
+                if released_in.contains(room_id) {
+                    let stop = serde_json::json!({
+                        "type": "screen_share_stopped",
                         "room_id": room_id,
                         "user_id": user_id,
-                        "username": username,
                     });
-                    let msg = axum::extract::ws::Message::Text(notification.to_string().into());
+                    let stop_msg = axum::extract::ws::Message::Text(stop.to_string().into());
                     for user in room.values() {
-                        let _ = user.sender.send(msg.clone());
-                    }
-
-                    if released_in.contains(room_id) {
-                        let stop = serde_json::json!({
-                            "type": "screen_share_stopped",
-                            "room_id": room_id,
-                            "user_id": user_id,
-                        });
-                        let stop_msg = axum::extract::ws::Message::Text(stop.to_string().into());
-                        for user in room.values() {
-                            let _ = user.sender.send(stop_msg.clone());
-                        }
+                        let _ = user.sender.send(stop_msg.clone());
                     }
                 }
             }
@@ -175,12 +181,12 @@ impl ConnectionManager {
 
     pub async fn send_to_user(&self, room_id: &str, target_user_id: &str, message: &str) -> bool {
         let rooms = self.rooms.read().await;
-        if let Some(room) = rooms.get(room_id) {
-            if let Some(user) = room.get(target_user_id) {
-                let msg = axum::extract::ws::Message::Text(message.to_string().into());
-                let _ = user.sender.send(msg);
-                return true;
-            }
+        if let Some(room) = rooms.get(room_id)
+            && let Some(user) = room.get(target_user_id)
+        {
+            let msg = axum::extract::ws::Message::Text(message.to_string().into());
+            let _ = user.sender.send(msg);
+            return true;
         }
         false
     }
