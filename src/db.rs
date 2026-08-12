@@ -1,5 +1,5 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
 pub async fn create_pool(database_url: &str) -> SqlitePool {
@@ -17,6 +17,10 @@ pub async fn create_pool(database_url: &str) -> SqlitePool {
         .await
         .expect("failed to create database pool");
 
-    tracing::info!(max_connections = 5, journal_mode = "WAL", "database pool ready");
+    tracing::info!(
+        max_connections = 5,
+        journal_mode = "WAL",
+        "database pool ready"
+    );
     pool
 }

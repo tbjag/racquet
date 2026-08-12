@@ -97,7 +97,12 @@ pub async fn find_user_by_id(
     .await
 }
 
-pub async fn insert_room(pool: &SqlitePool, id: &str, name: &str, created_by: &str) -> Result<(), sqlx::Error> {
+pub async fn insert_room(
+    pool: &SqlitePool,
+    id: &str,
+    name: &str,
+    created_by: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO rooms (id, name, created_by) VALUES (?, ?, ?)")
         .bind(id)
         .bind(name)
@@ -108,12 +113,20 @@ pub async fn insert_room(pool: &SqlitePool, id: &str, name: &str, created_by: &s
 }
 
 pub async fn list_rooms(pool: &SqlitePool) -> Result<Vec<Room>, sqlx::Error> {
-    sqlx::query_as::<_, Room>("SELECT id, name, created_by, created_at FROM rooms ORDER BY created_at ASC")
-        .fetch_all(pool)
-        .await
+    sqlx::query_as::<_, Room>(
+        "SELECT id, name, created_by, created_at FROM rooms ORDER BY created_at ASC",
+    )
+    .fetch_all(pool)
+    .await
 }
 
-pub async fn insert_message(pool: &SqlitePool, id: &str, room_id: &str, user_id: &str, content: &str) -> Result<(), sqlx::Error> {
+pub async fn insert_message(
+    pool: &SqlitePool,
+    id: &str,
+    room_id: &str,
+    user_id: &str,
+    content: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO messages (id, room_id, user_id, content) VALUES (?, ?, ?, ?)")
         .bind(id)
         .bind(room_id)
@@ -124,7 +137,12 @@ pub async fn insert_message(pool: &SqlitePool, id: &str, room_id: &str, user_id:
     Ok(())
 }
 
-pub async fn get_messages(pool: &SqlitePool, room_id: &str, before: Option<&str>, limit: i64) -> Result<Vec<MessageWithUsername>, sqlx::Error> {
+pub async fn get_messages(
+    pool: &SqlitePool,
+    room_id: &str,
+    before: Option<&str>,
+    limit: i64,
+) -> Result<Vec<MessageWithUsername>, sqlx::Error> {
     let limit = limit.min(100).max(1);
 
     match before {
@@ -133,7 +151,7 @@ pub async fn get_messages(pool: &SqlitePool, room_id: &str, before: Option<&str>
                 "SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.created_at \
                  FROM messages m JOIN users u ON m.user_id = u.id \
                  WHERE m.room_id = ? AND m.rowid < (SELECT rowid FROM messages WHERE id = ?) \
-                 ORDER BY m.rowid DESC LIMIT ?"
+                 ORDER BY m.rowid DESC LIMIT ?",
             )
             .bind(room_id)
             .bind(before_id)
@@ -146,7 +164,7 @@ pub async fn get_messages(pool: &SqlitePool, room_id: &str, before: Option<&str>
                 "SELECT m.id, m.room_id, m.user_id, u.username, m.content, m.created_at \
                  FROM messages m JOIN users u ON m.user_id = u.id \
                  WHERE m.room_id = ? \
-                 ORDER BY m.rowid DESC LIMIT ?"
+                 ORDER BY m.rowid DESC LIMIT ?",
             )
             .bind(room_id)
             .bind(limit)
@@ -156,7 +174,10 @@ pub async fn get_messages(pool: &SqlitePool, room_id: &str, before: Option<&str>
     }
 }
 
-pub async fn find_room_by_id(pool: &SqlitePool, room_id: &str) -> Result<Option<Room>, sqlx::Error> {
+pub async fn find_room_by_id(
+    pool: &SqlitePool,
+    room_id: &str,
+) -> Result<Option<Room>, sqlx::Error> {
     sqlx::query_as::<_, Room>("SELECT id, name, created_by, created_at FROM rooms WHERE id = ?")
         .bind(room_id)
         .fetch_optional(pool)

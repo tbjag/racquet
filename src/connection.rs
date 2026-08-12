@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{RwLock, mpsc};
 
 pub type UserId = String;
 pub type RoomId = String;
@@ -30,14 +30,14 @@ impl ConnectionManager {
         sender: mpsc::UnboundedSender<axum::extract::ws::Message>,
     ) {
         let mut rooms = self.rooms.write().await;
-        let room = rooms.entry(room_id.to_string()).or_insert_with(HashMap::new);
+        let room = rooms
+            .entry(room_id.to_string())
+            .or_insert_with(HashMap::new);
 
         // Collect existing users list before notifying (excludes the joining user)
         let existing_users: Vec<serde_json::Value> = room
             .iter()
-            .map(|(id, user)| {
-                serde_json::json!({ "user_id": id, "username": user.username })
-            })
+            .map(|(id, user)| serde_json::json!({ "user_id": id, "username": user.username }))
             .collect();
 
         // Notify existing users in the room
@@ -58,7 +58,9 @@ impl ConnectionManager {
             "room_id": room_id,
             "users": existing_users,
         });
-        let _ = sender.send(axum::extract::ws::Message::Text(room_users_msg.to_string().into()));
+        let _ = sender.send(axum::extract::ws::Message::Text(
+            room_users_msg.to_string().into(),
+        ));
 
         room.insert(
             user_id.to_string(),
@@ -225,7 +227,10 @@ mod tests {
     use super::*;
 
     /// Helper to create a connected user's sender/receiver pair
-    fn make_user_channel() -> (mpsc::UnboundedSender<axum::extract::ws::Message>, mpsc::UnboundedReceiver<axum::extract::ws::Message>) {
+    fn make_user_channel() -> (
+        mpsc::UnboundedSender<axum::extract::ws::Message>,
+        mpsc::UnboundedReceiver<axum::extract::ws::Message>,
+    ) {
         mpsc::unbounded_channel()
     }
 
@@ -319,11 +324,11 @@ mod tests {
         assert_eq!(received.into_text().unwrap(), msg);
 
         // user-1 should NOT receive it
-        let nothing = tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            rx1.recv(),
-        ).await;
-        assert!(nothing.is_err(), "user-1 should not receive a targeted message for user-2");
+        let nothing = tokio::time::timeout(std::time::Duration::from_millis(50), rx1.recv()).await;
+        assert!(
+            nothing.is_err(),
+            "user-1 should not receive a targeted message for user-2"
+        );
     }
 
     #[tokio::test]
@@ -356,7 +361,10 @@ mod tests {
         // Bob joins — alice should receive a user_joined notification
         cm.join_room("room-1", "user-2", "bob", tx2).await;
 
-        let received = rx1.recv().await.expect("alice should receive user_joined notification");
+        let received = rx1
+            .recv()
+            .await
+            .expect("alice should receive user_joined notification");
         let text = received.into_text().unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&text).expect("should be valid JSON");
 
@@ -365,5 +373,4 @@ mod tests {
         assert_eq!(parsed["username"], "bob");
         assert_eq!(parsed["room_id"], "room-1");
     }
-
 }

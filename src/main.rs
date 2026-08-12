@@ -1,5 +1,5 @@
+use racquet::{AppState, build_router, config, connection::ConnectionManager, db};
 use std::sync::Arc;
-use racquet::{config, connection::ConnectionManager, db, AppState, build_router};
 
 #[tokio::main]
 async fn main() {
@@ -18,7 +18,10 @@ async fn main() {
     let pool = db::create_pool(&config.database_url).await;
     tracing::info!("database pool created");
 
-    sqlx::migrate!().run(&pool).await.expect("migrations failed");
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .expect("migrations failed");
     tracing::info!("database migrations applied");
 
     let state = AppState {

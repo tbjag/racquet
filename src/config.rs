@@ -40,20 +40,19 @@ impl Config {
             }
         });
 
-        let google_client_secret =
-            std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| {
-                if test_mode {
-                    "test-client-secret".to_string()
-                } else {
-                    panic!("GOOGLE_CLIENT_SECRET must be set")
-                }
-            });
+        let google_client_secret = std::env::var("GOOGLE_CLIENT_SECRET").unwrap_or_else(|_| {
+            if test_mode {
+                "test-client-secret".to_string()
+            } else {
+                panic!("GOOGLE_CLIENT_SECRET must be set")
+            }
+        });
 
         let google_redirect_uri = std::env::var("GOOGLE_REDIRECT_URI")
             .unwrap_or_else(|_| "http://localhost:3000/api/auth/google/callback".to_string());
 
-        let frontend_url = std::env::var("FRONTEND_URL")
-            .unwrap_or_else(|_| "http://localhost:5173".to_string());
+        let frontend_url =
+            std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:5173".to_string());
 
         let allowed_emails = load_allowed_emails();
 
@@ -75,8 +74,8 @@ impl Config {
 }
 
 fn load_allowed_emails() -> Vec<String> {
-    let path = std::env::var("ALLOWED_EMAILS_FILE")
-        .unwrap_or_else(|_| "allowed_emails.txt".to_string());
+    let path =
+        std::env::var("ALLOWED_EMAILS_FILE").unwrap_or_else(|_| "allowed_emails.txt".to_string());
 
     if !Path::new(&path).exists() {
         tracing::warn!("allowed_emails file not found at {path}, no emails whitelisted");

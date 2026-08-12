@@ -5,10 +5,10 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
+use crate::AppState;
 use crate::auth;
 use crate::errors::AppError;
 use crate::models;
-use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct WsQuery {
@@ -119,7 +119,9 @@ async fn handle_text_message(
             let msg_id = uuid::Uuid::new_v4().to_string();
 
             // Persist to database
-            if let Err(e) = models::insert_message(&state.db, &msg_id, room_id, user_id, content).await {
+            if let Err(e) =
+                models::insert_message(&state.db, &msg_id, room_id, user_id, content).await
+            {
                 tracing::error!(error = %e, room_id = %room_id, user_id = %user_id, "failed to persist message");
                 let _ = sender.send(Message::Text(
                     serde_json::json!({ "type": "error", "message": e.to_string() })
@@ -152,7 +154,9 @@ async fn handle_text_message(
                 Some(id) => id,
                 None => {
                     let _ = sender.send(Message::Text(
-                        serde_json::json!({ "type": "error", "message": "missing room_id" }).to_string().into(),
+                        serde_json::json!({ "type": "error", "message": "missing room_id" })
+                            .to_string()
+                            .into(),
                     ));
                     return;
                 }
@@ -173,7 +177,9 @@ async fn handle_text_message(
                     serde_json::json!({
                         "type": "error",
                         "message": "another user is already sharing their screen in this room"
-                    }).to_string().into(),
+                    })
+                    .to_string()
+                    .into(),
                 ));
                 return;
             }
@@ -185,14 +191,19 @@ async fn handle_text_message(
                 "username": username,
                 "stream_id": stream_id,
             });
-            state.cm.broadcast_to_room(room_id, &broadcast.to_string()).await;
+            state
+                .cm
+                .broadcast_to_room(room_id, &broadcast.to_string())
+                .await;
         }
         "screen_share_stop" => {
             let room_id = match parsed["room_id"].as_str() {
                 Some(id) => id,
                 None => {
                     let _ = sender.send(Message::Text(
-                        serde_json::json!({ "type": "error", "message": "missing room_id" }).to_string().into(),
+                        serde_json::json!({ "type": "error", "message": "missing room_id" })
+                            .to_string()
+                            .into(),
                     ));
                     return;
                 }
@@ -205,7 +216,10 @@ async fn handle_text_message(
                     "room_id": room_id,
                     "user_id": user_id,
                 });
-                state.cm.broadcast_to_room(room_id, &broadcast.to_string()).await;
+                state
+                    .cm
+                    .broadcast_to_room(room_id, &broadcast.to_string())
+                    .await;
             }
         }
         "offer" | "answer" | "ice_candidate" | "call_leave" => {
@@ -213,7 +227,9 @@ async fn handle_text_message(
                 Some(id) => id,
                 None => {
                     let _ = sender.send(Message::Text(
-                        serde_json::json!({ "type": "error", "message": "missing room_id" }).to_string().into(),
+                        serde_json::json!({ "type": "error", "message": "missing room_id" })
+                            .to_string()
+                            .into(),
                     ));
                     return;
                 }
@@ -222,7 +238,9 @@ async fn handle_text_message(
                 Some(id) => id,
                 None => {
                     let _ = sender.send(Message::Text(
-                        serde_json::json!({ "type": "error", "message": "missing target_user_id" }).to_string().into(),
+                        serde_json::json!({ "type": "error", "message": "missing target_user_id" })
+                            .to_string()
+                            .into(),
                     ));
                     return;
                 }
@@ -230,7 +248,9 @@ async fn handle_text_message(
             let payload = &parsed["payload"];
             if payload.is_null() {
                 let _ = sender.send(Message::Text(
-                    serde_json::json!({ "type": "error", "message": "missing payload" }).to_string().into(),
+                    serde_json::json!({ "type": "error", "message": "missing payload" })
+                        .to_string()
+                        .into(),
                 ));
                 return;
             }
@@ -243,13 +263,18 @@ async fn handle_text_message(
                 "payload": payload,
             });
 
-            let sent = state.cm.send_to_user(room_id, target_user_id, &relay.to_string()).await;
+            let sent = state
+                .cm
+                .send_to_user(room_id, target_user_id, &relay.to_string())
+                .await;
             if !sent {
                 let _ = sender.send(Message::Text(
                     serde_json::json!({
                         "type": "error",
                         "message": format!("user {} not found in room", target_user_id)
-                    }).to_string().into(),
+                    })
+                    .to_string()
+                    .into(),
                 ));
             }
         }

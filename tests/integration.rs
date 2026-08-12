@@ -1,6 +1,6 @@
 use futures_util::{SinkExt, StreamExt};
 use reqwest::StatusCode;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 /// Helper to create a text WS message from a JSON value
@@ -12,10 +12,16 @@ fn text_msg(v: Value) -> Message {
 /// Test mode is enabled, so `/api/auth/test-login` is available.
 /// Returns the base URL (e.g., "http://127.0.0.1:12345").
 async fn spawn_app() -> String {
-    let db_url = format!("sqlite:/tmp/racquet-test-{}.db?mode=rwc", uuid::Uuid::new_v4());
+    let db_url = format!(
+        "sqlite:/tmp/racquet-test-{}.db?mode=rwc",
+        uuid::Uuid::new_v4()
+    );
 
     let pool = racquet::db::create_pool(&db_url).await;
-    sqlx::migrate!().run(&pool).await.expect("migrations failed");
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .expect("migrations failed");
 
     let state = racquet::AppState {
         db: pool,
@@ -50,8 +56,14 @@ async fn login_user(base: &str, email: &str) -> String {
         .await
         .expect("test-login request should succeed");
 
-    let body: Value = resp.json().await.expect("test-login response should be JSON");
-    body["token"].as_str().expect("token field should exist").to_string()
+    let body: Value = resp
+        .json()
+        .await
+        .expect("test-login response should be JSON");
+    body["token"]
+        .as_str()
+        .expect("token field should exist")
+        .to_string()
 }
 
 /// Helper: create a test user via test-login and return their user ID
@@ -63,8 +75,14 @@ async fn register_and_get_id(base: &str, username: &str, _password: &str) -> Str
         .await
         .expect("test-login request should succeed");
 
-    let body: Value = resp.json().await.expect("test-login response should be JSON");
-    body["user_id"].as_str().expect("user_id field should exist").to_string()
+    let body: Value = resp
+        .json()
+        .await
+        .expect("test-login response should be JSON");
+    body["user_id"]
+        .as_str()
+        .expect("user_id field should exist")
+        .to_string()
 }
 
 /// Helper: drain all pending WebSocket messages with a short timeout
@@ -101,7 +119,9 @@ async fn create_room(base: &str, token: &str, name: &str) -> Value {
         .await
         .expect("create room request should succeed");
 
-    resp.json().await.expect("create room response should be JSON")
+    resp.json()
+        .await
+        .expect("create room response should be JSON")
 }
 
 // ============================================================
@@ -122,7 +142,10 @@ async fn test_login_via_test_endpoint() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body: Value = resp.json().await.unwrap();
-    assert!(body["token"].as_str().is_some(), "response should include a token");
+    assert!(
+        body["token"].as_str().is_some(),
+        "response should include a token"
+    );
 }
 
 #[tokio::test]
@@ -371,8 +394,8 @@ async fn test_get_messages_pagination() {
 
     // Join the room
     ws.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Drain room_users message
     let _ = ws.next().await;
@@ -416,7 +439,11 @@ async fn test_get_messages_pagination() {
 
     let body: Value = resp.json().await.unwrap();
     let messages = body.as_array().expect("response should be an array");
-    assert_eq!(messages.len(), 10, "second page should have remaining 10 messages");
+    assert_eq!(
+        messages.len(),
+        10,
+        "second page should have remaining 10 messages"
+    );
 }
 
 // ============================================================
@@ -466,28 +493,22 @@ async fn test_ws_join_and_receive_message() {
 
     // Both join the room
     ws_a.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     ws_b.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Drain join notifications
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    while let Ok(msg) = tokio::time::timeout(
-        std::time::Duration::from_millis(100),
-        ws_a.next(),
-    )
-    .await
+    while let Ok(msg) =
+        tokio::time::timeout(std::time::Duration::from_millis(100), ws_a.next()).await
     {
         let _ = msg;
     }
-    while let Ok(msg) = tokio::time::timeout(
-        std::time::Duration::from_millis(100),
-        ws_b.next(),
-    )
-    .await
+    while let Ok(msg) =
+        tokio::time::timeout(std::time::Duration::from_millis(100), ws_b.next()).await
     {
         let _ = msg;
     }
@@ -502,27 +523,21 @@ async fn test_ws_join_and_receive_message() {
     .unwrap();
 
     // Both should receive the new_message
-    let msg_a = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        ws_a.next(),
-    )
-    .await
-    .expect("alice should receive within timeout")
-    .expect("stream should not end")
-    .expect("should be a valid message");
+    let msg_a = tokio::time::timeout(std::time::Duration::from_secs(2), ws_a.next())
+        .await
+        .expect("alice should receive within timeout")
+        .expect("stream should not end")
+        .expect("should be a valid message");
 
     let parsed_a: Value = serde_json::from_str(&msg_a.into_text().unwrap()).unwrap();
     assert_eq!(parsed_a["type"], "new_message");
     assert_eq!(parsed_a["content"], "hello from alice");
 
-    let msg_b = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        ws_b.next(),
-    )
-    .await
-    .expect("bob should receive within timeout")
-    .expect("stream should not end")
-    .expect("should be a valid message");
+    let msg_b = tokio::time::timeout(std::time::Duration::from_secs(2), ws_b.next())
+        .await
+        .expect("bob should receive within timeout")
+        .expect("stream should not end")
+        .expect("should be a valid message");
 
     let parsed_b: Value = serde_json::from_str(&msg_b.into_text().unwrap()).unwrap();
     assert_eq!(parsed_b["type"], "new_message");
@@ -546,8 +561,8 @@ async fn test_ws_user_joined_notification() {
         .await
         .unwrap();
     ws_a.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Drain alice's room_users message
     let _ = recv_json(&mut ws_a).await;
@@ -557,8 +572,8 @@ async fn test_ws_user_joined_notification() {
         .await
         .unwrap();
     ws_b.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Alice should receive a user_joined notification for bob
     let parsed = recv_json(&mut ws_a).await;
@@ -588,30 +603,29 @@ async fn test_ws_user_left_notification() {
 
     // Both join
     ws_a.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
     ws_b.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Drain alice's room_users + user_joined notifications
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
 
     // Bob leaves the room
-    ws_b.send(text_msg(json!({ "type": "leave_room", "room_id": room_id })))
+    ws_b.send(text_msg(
+        json!({ "type": "leave_room", "room_id": room_id }),
+    ))
     .await
     .unwrap();
 
     // Alice should receive user_left
-    let msg = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        ws_a.next(),
-    )
-    .await
-    .expect("should receive within timeout")
-    .expect("stream should not end")
-    .expect("should be valid");
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(2), ws_a.next())
+        .await
+        .expect("should receive within timeout")
+        .expect("stream should not end")
+        .expect("should be valid");
 
     let parsed: Value = serde_json::from_str(&msg.into_text().unwrap()).unwrap();
     assert_eq!(parsed["type"], "user_left");
@@ -634,8 +648,8 @@ async fn test_ws_message_persisted() {
 
     // Join room and send a message
     ws.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     // Drain room_users message
     let _ = recv_json(&mut ws).await;
@@ -649,11 +663,7 @@ async fn test_ws_message_persisted() {
     .unwrap();
 
     // Wait for the echo
-    let _ = tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        ws.next(),
-    )
-    .await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), ws.next()).await;
 
     // Now fetch via REST API
     let resp = reqwest::Client::new()
@@ -689,12 +699,20 @@ async fn test_ws_offer_relayed_to_target() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
 
     // Both join room
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -706,7 +724,9 @@ async fn test_ws_offer_relayed_to_target() {
         "room_id": room_id,
         "target_user_id": bob_id,
         "payload": sdp_payload
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     // Bob should receive the relayed offer
     let received = recv_json(&mut ws_b).await;
@@ -717,10 +737,7 @@ async fn test_ws_offer_relayed_to_target() {
     assert_eq!(received["payload"]["sdp"], "v=0\r\n...");
 
     // Alice should NOT receive her own offer back
-    let nothing = tokio::time::timeout(
-        std::time::Duration::from_millis(200),
-        ws_a.next(),
-    ).await;
+    let nothing = tokio::time::timeout(std::time::Duration::from_millis(200), ws_a.next()).await;
     assert!(nothing.is_err(), "alice should not receive her own offer");
 }
 
@@ -737,11 +754,19 @@ async fn test_ws_answer_relayed_to_offerer() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -753,7 +778,9 @@ async fn test_ws_answer_relayed_to_offerer() {
         "room_id": room_id,
         "target_user_id": alice_id,
         "payload": sdp_payload
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     let received = recv_json(&mut ws_a).await;
     assert_eq!(received["type"], "answer");
@@ -775,11 +802,19 @@ async fn test_ws_ice_candidate_relayed() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -791,7 +826,9 @@ async fn test_ws_ice_candidate_relayed() {
         "room_id": room_id,
         "target_user_id": bob_id,
         "payload": ice_payload
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     let received = recv_json(&mut ws_b).await;
     assert_eq!(received["type"], "ice_candidate");
@@ -811,9 +848,13 @@ async fn test_ws_signaling_to_missing_user_returns_error() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
 
@@ -823,7 +864,9 @@ async fn test_ws_signaling_to_missing_user_returns_error() {
         "room_id": room_id,
         "target_user_id": "nonexistent",
         "payload": {"type": "offer", "sdp": "..."}
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     let received = recv_json(&mut ws_a).await;
     assert_eq!(received["type"], "error");
@@ -844,13 +887,25 @@ async fn test_ws_signaling_not_broadcast_to_third_user() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
-    let (mut ws_c, _) = connect_async(format!("{ws_url}/ws?token={token_c}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
+    let (mut ws_c, _) = connect_async(format!("{ws_url}/ws?token={token_c}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_c.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_c.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -862,18 +917,20 @@ async fn test_ws_signaling_not_broadcast_to_third_user() {
         "room_id": room_id,
         "target_user_id": bob_id,
         "payload": {"type": "offer", "sdp": "..."}
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     // Bob should receive it
     let received = recv_json(&mut ws_b).await;
     assert_eq!(received["type"], "offer");
 
     // Charlie should NOT receive it
-    let nothing = tokio::time::timeout(
-        std::time::Duration::from_millis(200),
-        ws_c.next(),
-    ).await;
-    assert!(nothing.is_err(), "charlie should not receive alice's offer to bob");
+    let nothing = tokio::time::timeout(std::time::Duration::from_millis(200), ws_c.next()).await;
+    assert!(
+        nothing.is_err(),
+        "charlie should not receive alice's offer to bob"
+    );
 }
 
 #[tokio::test]
@@ -889,19 +946,30 @@ async fn test_ws_join_room_returns_room_users() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
 
     // Alice joins — should get room_users with empty list (she's the only one)
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     let msg = recv_json(&mut ws_a).await;
     assert_eq!(msg["type"], "room_users");
     assert_eq!(msg["room_id"], room_id);
     let users = msg["users"].as_array().expect("users should be an array");
-    assert!(users.is_empty(), "no other users when alice is first to join");
+    assert!(
+        users.is_empty(),
+        "no other users when alice is first to join"
+    );
 
     // Bob joins — should get room_users listing alice
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
 
     // Drain alice's user_joined notification for bob
     let _ = recv_json(&mut ws_a).await;
@@ -953,11 +1021,19 @@ async fn test_ws_screen_share_start_broadcasts_to_room() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -967,7 +1043,9 @@ async fn test_ws_screen_share_start_broadcasts_to_room() {
         "type": "screen_share_start",
         "room_id": room_id,
         "payload": { "stream_id": "abc-stream-123" }
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     // Bob should receive screen_share_started
     let received = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
@@ -994,11 +1072,19 @@ async fn test_ws_screen_share_start_rejected_when_active() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -1008,7 +1094,9 @@ async fn test_ws_screen_share_start_rejected_when_active() {
         "type": "screen_share_start",
         "room_id": room_id,
         "payload": { "stream_id": "alice-stream" }
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
     let _ = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_started").await;
     let _ = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
 
@@ -1017,18 +1105,27 @@ async fn test_ws_screen_share_start_rejected_when_active() {
         "type": "screen_share_start",
         "room_id": room_id,
         "payload": { "stream_id": "bob-stream" }
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     let received = recv_json_matching(&mut ws_b, |v| v["type"] == "error").await;
-    assert!(received["message"].as_str().unwrap().to_lowercase().contains("already"),
-        "error message should mention an active share, got: {}", received["message"]);
+    assert!(
+        received["message"]
+            .as_str()
+            .unwrap()
+            .to_lowercase()
+            .contains("already"),
+        "error message should mention an active share, got: {}",
+        received["message"]
+    );
 
     // Alice should NOT receive a second screen_share_started for bob
-    let nothing = tokio::time::timeout(
-        std::time::Duration::from_millis(200),
-        ws_a.next(),
-    ).await;
-    assert!(nothing.is_err(), "alice's share should be unaffected by bob's rejected attempt");
+    let nothing = tokio::time::timeout(std::time::Duration::from_millis(200), ws_a.next()).await;
+    assert!(
+        nothing.is_err(),
+        "alice's share should be unaffected by bob's rejected attempt"
+    );
 
     // Sanity: alice's share is still attributed to alice
     assert_eq!(alice_id, alice_id);
@@ -1047,11 +1144,19 @@ async fn test_ws_screen_share_stop_broadcasts() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -1061,7 +1166,9 @@ async fn test_ws_screen_share_stop_broadcasts() {
         "type": "screen_share_start",
         "room_id": room_id,
         "payload": { "stream_id": "alice-stream" }
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
     let _ = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_started").await;
     let _ = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
 
@@ -1070,7 +1177,9 @@ async fn test_ws_screen_share_stop_broadcasts() {
         "type": "screen_share_stop",
         "room_id": room_id,
         "payload": {}
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     let received_b = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_stopped").await;
     assert_eq!(received_b["room_id"], room_id);
@@ -1093,11 +1202,19 @@ async fn test_ws_screen_share_cleared_on_disconnect() {
     let room_id = room["id"].as_str().unwrap();
 
     let ws_url = base.replace("http://", "ws://");
-    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}")).await.unwrap();
-    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}")).await.unwrap();
+    let (mut ws_a, _) = connect_async(format!("{ws_url}/ws?token={token_a}"))
+        .await
+        .unwrap();
+    let (mut ws_b, _) = connect_async(format!("{ws_url}/ws?token={token_b}"))
+        .await
+        .unwrap();
 
-    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
-    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id}))).await.unwrap();
+    ws_a.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    ws_b.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drain_ws(&mut ws_a).await;
     drain_ws(&mut ws_b).await;
@@ -1107,7 +1224,9 @@ async fn test_ws_screen_share_cleared_on_disconnect() {
         "type": "screen_share_start",
         "room_id": room_id,
         "payload": { "stream_id": "alice-stream" }
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
     let _ = recv_json_matching(&mut ws_a, |v| v["type"] == "screen_share_started").await;
     let _ = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
 
@@ -1123,7 +1242,9 @@ async fn test_ws_screen_share_cleared_on_disconnect() {
         "type": "screen_share_start",
         "room_id": room_id,
         "payload": { "stream_id": "bob-stream" }
-    }))).await.unwrap();
+    })))
+    .await
+    .unwrap();
 
     let started = recv_json_matching(&mut ws_b, |v| v["type"] == "screen_share_started").await;
     assert_eq!(started["user_id"], bob_id);

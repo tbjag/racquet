@@ -1,7 +1,12 @@
 use crate::errors::AppError;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 
-pub fn create_token(user_id: &str, username: &str, email: &str, secret: &str) -> Result<String, AppError> {
+pub fn create_token(
+    user_id: &str,
+    username: &str,
+    email: &str,
+    secret: &str,
+) -> Result<String, AppError> {
     let exp = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::hours(24))
         .expect("valid timestamp")
@@ -99,7 +104,8 @@ mod tests {
         let username = "alice";
         let email = "alice@gmail.com";
 
-        let token = create_token(user_id, username, email, secret).expect("token creation should succeed");
+        let token =
+            create_token(user_id, username, email, secret).expect("token creation should succeed");
         assert!(!token.is_empty(), "token should not be empty");
 
         let claims = verify_token(&token, secret).expect("token verification should succeed");
@@ -111,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_expired_token() {
-        use jsonwebtoken::{encode, EncodingKey, Header};
+        use jsonwebtoken::{EncodingKey, Header, encode};
 
         let secret = "test-secret-key";
         let claims = Claims {

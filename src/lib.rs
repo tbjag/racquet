@@ -7,8 +7,8 @@ pub mod models;
 pub mod routes;
 pub mod ws;
 
-use std::sync::Arc;
 use connection::ConnectionManager;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -35,8 +35,14 @@ pub fn build_router(state: AppState) -> axum::Router {
             "/api/auth/google/callback",
             get(routes::google_auth_callback),
         )
-        .route("/api/profile", get(routes::get_profile).put(routes::update_profile))
-        .route("/api/rooms", get(routes::list_rooms).post(routes::create_room))
+        .route(
+            "/api/profile",
+            get(routes::get_profile).put(routes::update_profile),
+        )
+        .route(
+            "/api/rooms",
+            get(routes::list_rooms).post(routes::create_room),
+        )
         .route("/api/rooms/{room_id}/messages", get(routes::get_messages))
         .route("/ws", get(ws::ws_handler));
 
@@ -45,15 +51,11 @@ pub fn build_router(state: AppState) -> axum::Router {
     }
 
     let static_dir = state.static_dir.clone();
-    let mut router = router
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let mut router = router.layer(TraceLayer::new_for_http()).with_state(state);
 
     if let Some(dir) = static_dir {
         let index = format!("{dir}/index.html");
-        router = router.fallback_service(
-            ServeDir::new(&dir).fallback(ServeFile::new(index)),
-        );
+        router = router.fallback_service(ServeDir::new(&dir).fallback(ServeFile::new(index)));
     }
 
     router

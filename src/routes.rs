@@ -1,13 +1,13 @@
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect};
-use axum::Json;
 use serde::Deserialize;
 
+use crate::AppState;
 use crate::auth::{self, AuthUser};
 use crate::errors::AppError;
 use crate::models;
-use crate::AppState;
 
 // --- Google OAuth ---
 
@@ -55,9 +55,9 @@ pub async fn google_auth_callback(
         )));
     }
 
-    let code = query.code.ok_or_else(|| {
-        AppError::BadRequest("missing authorization code".to_string())
-    })?;
+    let code = query
+        .code
+        .ok_or_else(|| AppError::BadRequest("missing authorization code".to_string()))?;
 
     // Exchange code for access token
     let client = reqwest::Client::new();
@@ -150,7 +150,9 @@ pub async fn test_login(
     let token = auth::create_token(&user.id, &user.username, &user.email, &state.jwt_secret)?;
     tracing::info!(user_id = %user.id, email = %email, "test login");
 
-    Ok(Json(serde_json::json!({ "token": token, "user_id": user.id })))
+    Ok(Json(
+        serde_json::json!({ "token": token, "user_id": user.id }),
+    ))
 }
 
 // --- Profile ---
@@ -260,13 +262,8 @@ pub async fn get_messages(
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let limit = query.limit.unwrap_or(50).min(100).max(1);
-    let messages = models::get_messages(
-        &state.db,
-        &room_id,
-        query.before.as_deref(),
-        limit,
-    )
-    .await?;
+    let messages =
+        models::get_messages(&state.db, &room_id, query.before.as_deref(), limit).await?;
     tracing::debug!(room_id = %room_id, count = messages.len(), limit, "messages fetched");
 
     Ok(Json(serde_json::json!(messages)))
