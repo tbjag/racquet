@@ -262,7 +262,9 @@ pub async fn rename_room(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let name = req.name.trim().to_string();
     if name.is_empty() {
-        return Err(AppError::BadRequest("room name cannot be empty".to_string()));
+        return Err(AppError::BadRequest(
+            "room name cannot be empty".to_string(),
+        ));
     }
     if name.chars().count() > 50 {
         return Err(AppError::BadRequest(
