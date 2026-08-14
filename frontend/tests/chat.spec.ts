@@ -138,4 +138,69 @@ test.describe('Chat messages', () => {
 		await expect(items.nth(1)).toContainText('second');
 		await expect(items.nth(2)).toContainText('third');
 	});
+
+	test('length counter is hidden normally and appears near the limit', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		const input = page.getByTestId('message-input');
+		await expect(input).toHaveAttribute('maxlength', '4000');
+
+		await input.fill('short message');
+		await expect(page.getByTestId('message-length-counter')).not.toBeVisible();
+
+		await input.fill('x'.repeat(3700));
+		await expect(page.getByTestId('message-length-counter')).toContainText('3700/4000');
+
+		await input.fill('x'.repeat(4000));
+		await expect(page.getByTestId('message-length-counter')).toContainText('4000/4000');
+	});
+
+	test('a long message is collapsed behind Read more', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		await page.getByTestId('message-input').fill('lorem ipsum dolor sit amet '.repeat(140));
+		await page.getByTestId('message-input').press('Enter');
+
+		const item = page.getByTestId('message-item').first();
+		await expect(item).toBeVisible();
+
+		const toggle = page.getByTestId('read-more-button');
+		await expect(toggle).toHaveText('Read more');
+
+		const collapsedHeight = (await item.boundingBox())!.height;
+
+		await toggle.click();
+		await expect(toggle).toHaveText('Show less');
+		await expect
+			.poll(async () => (await item.boundingBox())!.height)
+			.toBeGreaterThan(collapsedHeight);
+
+		await toggle.click();
+		await expect(toggle).toHaveText('Read more');
+	});
+
+	test('a short message has no Read more button', async ({ page, request }) => {
+		const { token } = await setupAuthenticatedUser(page, request);
+		const roomName = `rm${rnd()}`;
+		await createRoom(request, token, roomName);
+
+		await page.reload();
+		await selectRoom(page, roomName);
+
+		await page.getByTestId('message-input').fill('a quick one');
+		await page.getByTestId('message-input').press('Enter');
+
+		await expect(page.getByTestId('message-item')).toHaveCount(1);
+		await expect(page.getByTestId('read-more-button')).toHaveCount(0);
+	});
 });

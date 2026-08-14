@@ -10,6 +10,8 @@ use crate::auth;
 use crate::errors::AppError;
 use crate::models;
 
+const MAX_MESSAGE_LEN: usize = 4000;
+
 #[derive(Deserialize)]
 pub struct WsQuery {
     token: Option<String>,
@@ -115,6 +117,19 @@ async fn handle_text_message(
                 Some(c) => c,
                 None => return,
             };
+
+            let trimmed = content.trim();
+            if trimmed.is_empty() || trimmed.chars().count() > MAX_MESSAGE_LEN {
+                let _ = sender.send(Message::Text(
+                    serde_json::json!({
+                        "type": "error",
+                        "message": format!("message must be 1-{MAX_MESSAGE_LEN} characters")
+                    })
+                    .to_string()
+                    .into(),
+                ));
+                return;
+            }
 
             let msg_id = uuid::Uuid::new_v4().to_string();
 

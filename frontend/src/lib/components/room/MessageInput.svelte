@@ -5,11 +5,14 @@
 
 	let { onSend }: Props = $props();
 
+	const MAX = 4000;
+	const COUNTER_AT = 3600;
+
 	let value = $state('');
 
 	function submit() {
 		const trimmed = value.trim();
-		if (!trimmed) return;
+		if (!trimmed || trimmed.length > MAX) return;
 		onSend(trimmed);
 		value = '';
 	}
@@ -28,14 +31,24 @@
 </script>
 
 <form onsubmit={handleSubmit} class="message-form">
-	<div class="center-col">
+	<div class="center-col row">
 		<input
 			data-testid="message-input"
 			type="text"
 			placeholder="Type a message..."
+			maxlength={MAX}
 			bind:value
 			onkeydown={handleKeyDown}
 		/>
+		{#if value.length >= COUNTER_AT}
+			<span
+				data-testid="message-length-counter"
+				class="counter"
+				class:over={value.length >= MAX}
+			>
+				{value.length}/{MAX}
+			</span>
+		{/if}
 	</div>
 </form>
 
@@ -46,8 +59,27 @@
 		background: var(--bg);
 	}
 
+	.row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.counter {
+		flex-shrink: 0;
+		font-size: 0.75rem;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-muted);
+	}
+
+	.counter.over {
+		color: var(--danger);
+		font-weight: 600;
+	}
+
 	.message-form input {
-		width: 100%;
+		flex: 1;
+		min-width: 0;
 		padding: var(--space-3);
 		background: var(--bg-elevated);
 		color: var(--text);

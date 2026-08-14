@@ -15,6 +15,17 @@
 
 	let listEl: HTMLDivElement | undefined = $state();
 	let stickToBottom = $state(true);
+	let expanded = $state<Record<string, boolean>>({});
+	let overflowing = $state<Record<string, boolean>>({});
+
+	function clampWatch(node: HTMLElement, id: string) {
+		const check = () => {
+			if (!expanded[id]) overflowing[id] = node.scrollHeight > node.clientHeight + 1;
+		};
+		const ro = new ResizeObserver(check);
+		ro.observe(node);
+		return { destroy: () => ro.disconnect() };
+	}
 
 	function distanceFromBottom(el: HTMLElement) {
 		return el.scrollHeight - el.scrollTop - el.clientHeight;
@@ -51,8 +62,19 @@
 		{:else}
 			{#each messages as msg (msg.id)}
 				<div data-testid="message-item" class="message-item">
-					<strong>{msg.username}:</strong>
-					{msg.content}
+					<div class="body" class:clamped={!expanded[msg.id]} use:clampWatch={msg.id}>
+						<strong>{msg.username}:</strong>
+						{msg.content}
+					</div>
+					{#if overflowing[msg.id]}
+						<button
+							data-testid="read-more-button"
+							class="read-more"
+							onclick={() => (expanded[msg.id] = !expanded[msg.id])}
+						>
+							{expanded[msg.id] ? 'Show less' : 'Read more'}
+						</button>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -90,6 +112,30 @@
 	.message-item strong {
 		color: var(--accent);
 		font-weight: 600;
+	}
+
+	.body.clamped {
+		display: -webkit-box;
+		-webkit-line-clamp: 8;
+		line-clamp: 8;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.read-more {
+		margin-top: var(--space-1);
+		padding: 0;
+		background: none;
+		border: none;
+		box-shadow: none;
+		color: var(--accent);
+		font-size: 0.8rem;
+		font-weight: 500;
+		cursor: pointer;
+	}
+
+	.read-more:hover {
+		text-decoration: underline;
 	}
 
 	[data-testid='no-messages-placeholder'] {

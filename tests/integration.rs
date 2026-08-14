@@ -1508,3 +1508,118 @@ async fn test_ws_screen_share_cleared_on_disconnect() {
     assert_eq!(started["user_id"], bob_id);
     assert_eq!(started["stream_id"], "bob-stream");
 }
+
+#[tokio::test]
+async fn test_ws_send_message_too_long() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws, _) = connect_async(format!("{ws_url}/ws?token={token}"))
+        .await
+        .unwrap();
+
+    ws.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    drain_ws(&mut ws).await;
+
+    ws.send(text_msg(json!({
+        "type": "send_message",
+        "room_id": room_id,
+        "content": "x".repeat(4001)
+    })))
+    .await
+    .unwrap();
+
+    let received = recv_json_matching(&mut ws, |v| v["type"] == "error").await;
+    assert!(
+        received["message"].as_str().unwrap().contains("4000"),
+        "error should mention the limit, got: {}",
+        received["message"]
+    );
+
+    let resp = reqwest::Client::new()
+        .get(format!("{base}/api/rooms/{room_id}/messages"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    let body: Value = resp.json().await.unwrap();
+    assert!(
+        body.as_array().unwrap().is_empty(),
+        "over-long message must not be persisted"
+    );
+}
+
+#[tokio::test]
+async fn test_ws_send_message_at_limit() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws, _) = connect_async(format!("{ws_url}/ws?token={token}"))
+        .await
+        .unwrap();
+
+    ws.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    drain_ws(&mut ws).await;
+
+    let content = "x".repeat(4000);
+    ws.send(text_msg(json!({
+        "type": "send_message",
+        "room_id": room_id,
+        "content": content
+    })))
+    .await
+    .unwrap();
+
+    let received = recv_json_matching(&mut ws, |v| v["type"] == "new_message").await;
+    assert_eq!(received["content"].as_str().unwrap().len(), 4000);
+}
+
+#[tokio::test]
+async fn test_ws_send_message_blank_rejected() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws, _) = connect_async(format!("{ws_url}/ws?token={token}"))
+        .await
+        .unwrap();
+
+    ws.send(text_msg(json!({"type":"join_room","room_id":room_id})))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    drain_ws(&mut ws).await;
+
+    ws.send(text_msg(json!({
+        "type": "send_message",
+        "room_id": room_id,
+        "content": "   \n  "
+    })))
+    .await
+    .unwrap();
+
+    let _ = recv_json_matching(&mut ws, |v| v["type"] == "error").await;
+
+    let resp = reqwest::Client::new()
+        .get(format!("{base}/api/rooms/{room_id}/messages"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    let body: Value = resp.json().await.unwrap();
+    assert!(body.as_array().unwrap().is_empty());
+}
