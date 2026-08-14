@@ -33,6 +33,7 @@
 	<button
 		data-testid="room-submit-button"
 		type="submit"
+		class="btn primary"
 		disabled={submitting || !name.trim()}
 	>
 		{submitting ? 'Creating…' : 'Create'}
@@ -63,23 +64,5 @@
 		cursor: not-allowed;
 	}
 
-	.create-room-form button {
-		padding: var(--space-2) var(--space-3);
-		background: var(--accent);
-		color: var(--accent-text);
-		border: 1px solid var(--accent);
-		border-radius: var(--radius-sm);
-		font-size: 0.85rem;
-		font-weight: 600;
-	}
-
-	.create-room-form button:hover:not(:disabled) {
-		background: var(--accent-hover);
-		border-color: var(--accent-hover);
-	}
-
-	.create-room-form button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
+	/* Button styling comes from .btn.primary in app.css. */
 </style>

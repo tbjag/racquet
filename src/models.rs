@@ -46,7 +46,7 @@ pub async fn upsert_user_by_email(
 ) -> Result<User, sqlx::Error> {
     sqlx::query(
         "INSERT INTO users (id, email, username, google_id) VALUES (?, ?, ?, ?) \
-         ON CONFLICT(email) DO UPDATE SET username = excluded.username, google_id = excluded.google_id",
+         ON CONFLICT(email) DO UPDATE SET google_id = excluded.google_id",
     )
     .bind(id)
     .bind(email)
@@ -118,6 +118,35 @@ pub async fn list_rooms(pool: &SqlitePool) -> Result<Vec<Room>, sqlx::Error> {
     )
     .fetch_all(pool)
     .await
+}
+
+pub async fn update_room_name(
+    pool: &SqlitePool,
+    room_id: &str,
+    name: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE rooms SET name = ? WHERE id = ?")
+        .bind(name)
+        .bind(room_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_room(pool: &SqlitePool, room_id: &str) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("DELETE FROM messages WHERE room_id = ?")
+        .bind(room_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query("DELETE FROM rooms WHERE id = ?")
+        .bind(room_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await
 }
 
 pub async fn insert_message(

@@ -50,7 +50,7 @@
 		padding: var(--space-2) var(--space-3);
 		background: transparent;
 		color: var(--text-muted);
-		border: none;
+		border: 1px solid transparent;
 		border-radius: var(--radius-sm);
 		font-size: 0.9rem;
 		text-align: left;
@@ -63,6 +63,7 @@
 
 	.room-item.active {
 		background: var(--bg-elevated);
+		border-color: var(--border);
 		color: var(--text);
 		font-weight: 600;
 	}

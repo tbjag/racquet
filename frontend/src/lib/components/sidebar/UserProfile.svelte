@@ -36,19 +36,19 @@
 				maxlength={30}
 			/>
 			<div class="edit-actions">
-				<button data-testid="save-name-button" type="submit" class="primary">Save</button>
-				<button type="button" onclick={() => (editing = false)}>Cancel</button>
+				<button data-testid="save-name-button" type="submit" class="btn primary">Save</button>
+				<button type="button" class="btn" onclick={() => (editing = false)}>Cancel</button>
 			</div>
 		</form>
 	{:else}
 		<div class="profile-row">
 			<span data-testid="display-name" class="display-name">{displayName}</span>
-			<button data-testid="edit-name-button" class="ghost" onclick={startEdit}>Edit</button>
+			<button data-testid="edit-name-button" class="btn ghost" onclick={startEdit}>Edit</button>
 		</div>
 	{/if}
 	<div class="footer-row">
 		<ThemeToggle />
-		<button data-testid="logout-button" class="ghost logout" onclick={onLogout}>Logout</button>
+		<button data-testid="logout-button" class="btn ghost logout" onclick={onLogout}>Logout</button>
 	</div>
 </div>
 
@@ -102,42 +102,8 @@
 		align-items: center;
 	}
 
-	button {
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-elevated);
-		color: var(--text);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		font-size: 0.85rem;
-	}
-
-	button:hover {
-		background: var(--bg-hover);
-		border-color: var(--border-strong);
-	}
-
-	button.ghost {
-		background: transparent;
-		color: var(--text-muted);
-	}
-
-	button.ghost:hover {
-		background: var(--bg-hover);
-		color: var(--text);
-	}
-
-	button.primary {
-		background: var(--accent);
-		color: var(--accent-text);
-		border-color: var(--accent);
-	}
-
-	button.primary:hover {
-		background: var(--accent-hover);
-		border-color: var(--accent-hover);
-	}
-
-	button.logout {
+	/* Button styling comes from .btn in app.css. */
+	.logout {
 		font-size: 0.8rem;
 	}
 </style>

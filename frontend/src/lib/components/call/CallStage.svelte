@@ -251,7 +251,7 @@
 		border-radius: var(--radius-md);
 		overflow: hidden;
 		cursor: pointer;
-		border: 2px solid transparent;
+		border: 2px solid var(--border);
 		transition:
 			border-color 120ms ease,
 			box-shadow 120ms ease;
@@ -349,22 +349,6 @@
 		display: flex;
 		gap: var(--space-2);
 		z-index: 2;
-	}
-
-	.theater-buttons .btn {
-		padding: var(--space-2) var(--space-3);
-		background: var(--bg-elevated);
-		color: var(--text);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		font-size: 0.85rem;
-		font-weight: 500;
-		cursor: pointer;
-	}
-
-	.theater-buttons .btn:hover {
-		background: var(--bg-hover);
-		border-color: var(--border-strong);
 	}
 
 	.theater-cameras {

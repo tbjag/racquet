@@ -25,7 +25,7 @@ pub struct AppState {
 }
 
 pub fn build_router(state: AppState) -> axum::Router {
-    use axum::routing::{get, post};
+    use axum::routing::{get, post, put};
     use tower_http::services::{ServeDir, ServeFile};
     use tower_http::trace::TraceLayer;
 
@@ -42,6 +42,10 @@ pub fn build_router(state: AppState) -> axum::Router {
         .route(
             "/api/rooms",
             get(routes::list_rooms).post(routes::create_room),
+        )
+        .route(
+            "/api/rooms/{room_id}",
+            put(routes::rename_room).delete(routes::delete_room),
         )
         .route("/api/rooms/{room_id}/messages", get(routes::get_messages))
         .route("/ws", get(ws::ws_handler));

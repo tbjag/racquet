@@ -1,59 +1,62 @@
 :root {
-	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
-		sans-serif;
-	--font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	--font-sans: 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+		'Helvetica Neue', Arial, sans-serif;
 
 	--space-1: 0.25rem;
 	--space-2: 0.5rem;
 	--space-3: 0.75rem;
 	--space-4: 1rem;
-	--space-5: 1.5rem;
 	--space-6: 2rem;
 
-	--radius-sm: 4px;
-	--radius-md: 8px;
+	--radius-sm: 6px;
+	--radius-md: 10px;
+
+	/* Reading measure for the chat column. */
+	--content-max: 720px;
 }
 
 :root[data-theme='light'] {
-	--bg: #ffffff;
-	--bg-elevated: #f7f7f8;
-	--bg-sunken: #efefef;
-	--bg-hover: #ececec;
+	--bg: #eeefe9;
+	--bg-elevated: #ffffff;
+	--bg-sunken: #e5e7df;
+	--bg-hover: #dcded4;
 
-	--text: #1a1a1a;
-	--text-muted: #636363;
+	--text: #1d1f27;
+	--text-muted: #5f6058;
 	--text-inverse: #ffffff;
 
-	--border: #e2e2e2;
-	--border-strong: #c4c4c4;
+	--border: #d0d1c9;
+	--border-strong: #b3b5a9;
 
-	--accent: #5865f2;
-	--accent-hover: #4752c4;
+	--accent: #f54e00;
+	--accent-hover: #d94500;
 	--accent-text: #ffffff;
 
-	--danger: #d93025;
-	--danger-bg: #fdecea;
+	--danger: #c0392b;
+	--danger-bg: #fbe9e6;
 	--success: #1e8e3e;
 	--warning: #f4a000;
 
-	--focus-ring: 0 0 0 3px rgba(88, 101, 242, 0.35);
+	--focus-ring: 0 0 0 3px rgba(245, 78, 0, 0.3);
+	--shadow-btn: 0 2px 0 var(--border-strong);
+	--shadow-card: 2px 2px 0 var(--border-strong);
 }
 
 :root[data-theme='dark'] {
-	--bg: #1e1f22;
-	--bg-elevated: #2b2d31;
-	--bg-sunken: #17181b;
-	--bg-hover: #36373c;
+	--bg: #1d1f27;
+	--bg-elevated: #282a35;
+	--bg-sunken: #15161c;
+	--bg-hover: #33353f;
 
-	--text: #f2f3f5;
-	--text-muted: #b5bac1;
-	--text-inverse: #1a1a1a;
+	--text: #eeefe9;
+	--text-muted: #9fa0a8;
+	--text-inverse: #1d1f27;
 
-	--border: #3f4147;
-	--border-strong: #5a5c63;
+	--border: #3a3c46;
+	--border-strong: #54565f;
 
-	--accent: #5865f2;
-	--accent-hover: #7782f4;
+	--accent: #f54e00;
+	--accent-hover: #ff6b22;
 	--accent-text: #ffffff;
 
 	--danger: #f15a5a;
@@ -61,12 +64,13 @@
 	--success: #43b581;
 	--warning: #faa61a;
 
-	--focus-ring: 0 0 0 3px rgba(88, 101, 242, 0.5);
+	--focus-ring: 0 0 0 3px rgba(245, 78, 0, 0.45);
+	--shadow-btn: 0 2px 0 var(--border-strong);
+	--shadow-card: 2px 2px 0 var(--border-strong);
 }
 
 :root[data-theme='retro'] {
 	--font-sans: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma, Geneva, Verdana, sans-serif;
-	--font-mono: 'Courier New', Courier, monospace;
 
 	--radius-sm: 0px;
 	--radius-md: 0px;
@@ -93,6 +97,10 @@
 	--warning: #ffff00;
 
 	--focus-ring: 0 0 0 2px #000000;
+
+	/* Win95 uses inset bevels, not offset shadows. */
+	--shadow-btn: none;
+	--shadow-card: none;
 }
 
 :root[data-theme='retro'] body {
@@ -143,8 +151,9 @@ body {
 	background: var(--bg);
 	color: var(--text);
 	font-family: var(--font-sans);
-	font-size: 14px;
+	font-size: 15px;
 	line-height: 1.5;
+	letter-spacing: -0.006em;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 }
@@ -162,6 +171,7 @@ button {
 	transition:
 		background-color 120ms ease,
 		border-color 120ms ease,
+		box-shadow 120ms ease,
 		color 120ms ease,
 		opacity 120ms ease;
 }
@@ -173,21 +183,107 @@ button:active:not(:disabled) {
 input,
 textarea {
 	font: inherit;
-	transition: border-color 120ms ease, background-color 120ms ease;
+	transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
 a {
 	transition: background-color 120ms ease, color 120ms ease;
 }
 
+::selection {
+	background: var(--accent);
+	color: var(--accent-text);
+}
+
+/*
+ * Shared button system. Lives here rather than in a Button.svelte so the same
+ * rules reach every component without prop plumbing — the markup already used
+ * `class="btn primary|danger|toggled"` in three places that each hand-rolled
+ * their own copy of this block.
+ */
+.btn {
+	padding: var(--space-2) var(--space-3);
+	background: var(--bg-elevated);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-btn);
+	font-size: 0.85rem;
+	font-weight: 500;
+}
+
+.btn:hover:not(:disabled) {
+	background: var(--bg-hover);
+	border-color: var(--border-strong);
+}
+
+/* Shrink the offset by exactly the 1px the button travels, so the bottom edge stays put. */
+.btn:active:not(:disabled) {
+	box-shadow: 0 1px 0 var(--border-strong);
+}
+
+.btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	box-shadow: none;
+}
+
+.btn.primary {
+	background: var(--accent);
+	color: var(--accent-text);
+	border-color: var(--accent);
+}
+
+.btn.primary:hover:not(:disabled) {
+	background: var(--accent-hover);
+	border-color: var(--accent-hover);
+}
+
+/*
+ * Destructive actions are outlined, not filled: the accent is already a red-orange,
+ * so a filled red button would read as "primary" at a glance.
+ */
+.btn.danger {
+	background: transparent;
+	color: var(--danger);
+	border-color: var(--danger);
+}
+
+.btn.danger:hover:not(:disabled) {
+	background: var(--danger-bg);
+	border-color: var(--danger);
+}
+
+.btn.toggled {
+	background: var(--danger-bg);
+	color: var(--danger);
+	border-color: var(--danger);
+}
+
+.btn.ghost {
+	background: transparent;
+	color: var(--text-muted);
+	box-shadow: none;
+}
+
+.btn.ghost:hover:not(:disabled) {
+	background: var(--bg-hover);
+	color: var(--text);
+}
+
+/* Declared after .btn so the focus ring wins over the button's offset shadow —
+   they have equal specificity, so source order decides. */
 :focus-visible {
 	outline: none;
 	box-shadow: var(--focus-ring);
 }
 
-::selection {
-	background: var(--accent);
-	color: var(--accent-text);
+/* Bounded reading column for the chat. Applied to inner wrappers so borders and
+   scrollbars still span the full width of their container. */
+.center-col {
+	width: 100%;
+	max-width: var(--content-max);
+	margin: 0 auto;
 }
 
 /* Thin themed scrollbars */

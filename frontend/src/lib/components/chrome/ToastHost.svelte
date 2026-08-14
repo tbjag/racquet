@@ -36,7 +36,7 @@
 		color: var(--text);
 		font: inherit;
 		cursor: pointer;
-		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+		box-shadow: var(--shadow-card);
 		animation: toast-in 160ms ease-out;
 	}
 

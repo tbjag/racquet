@@ -48,7 +48,7 @@
 		background: var(--bg-elevated);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
-		box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+		box-shadow: var(--shadow-card);
 	}
 
 	h1 {
@@ -82,12 +82,21 @@
 		padding: var(--space-3) var(--space-4);
 		background: var(--accent);
 		color: var(--accent-text);
+		border: 1px solid var(--accent);
 		border-radius: var(--radius-sm);
+		box-shadow: var(--shadow-btn);
 		text-decoration: none;
 		font-weight: 600;
 	}
 
 	.google-btn:hover {
 		background: var(--accent-hover);
+		border-color: var(--accent-hover);
+	}
+
+	/* The offset shadow above outranks the global :focus-visible ring, so restore it here. */
+	.google-btn:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
 	}
 </style>

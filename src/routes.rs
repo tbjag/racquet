@@ -250,6 +250,75 @@ pub async fn create_room(
 }
 
 #[derive(Deserialize)]
+pub struct RenameRoomRequest {
+    name: String,
+}
+
+pub async fn rename_room(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path(room_id): Path<String>,
+    Json(req): Json<RenameRoomRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let name = req.name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::BadRequest("room name cannot be empty".to_string()));
+    }
+    if name.chars().count() > 50 {
+        return Err(AppError::BadRequest(
+            "room name must be 50 characters or fewer".to_string(),
+        ));
+    }
+
+    models::find_room_by_id(&state.db, &room_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("room not found".to_string()))?;
+
+    let existing = models::list_rooms(&state.db).await?;
+    if existing.iter().any(|r| r.name == name && r.id != room_id) {
+        return Err(AppError::Conflict("room name already taken".to_string()));
+    }
+
+    models::update_room_name(&state.db, &room_id, &name).await?;
+    tracing::info!(room_id = %room_id, room_name = %name, "room renamed");
+
+    let room = models::find_room_by_id(&state.db, &room_id)
+        .await?
+        .ok_or_else(|| AppError::Internal("failed to fetch renamed room".to_string()))?;
+
+    Ok(Json(serde_json::json!({
+        "id": room.id,
+        "name": room.name,
+        "created_by": room.created_by,
+        "created_at": room.created_at,
+    })))
+}
+
+pub async fn delete_room(
+    State(state): State<AppState>,
+    _user: AuthUser,
+    Path(room_id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    models::find_room_by_id(&state.db, &room_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("room not found".to_string()))?;
+
+    models::delete_room(&state.db, &room_id).await?;
+    tracing::info!(room_id = %room_id, "room deleted");
+
+    let notice = serde_json::json!({
+        "type": "room_deleted",
+        "room_id": room_id,
+    });
+    state
+        .cm
+        .broadcast_to_room(&room_id, &notice.to_string())
+        .await;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
 pub struct MessagesQuery {
     before: Option<String>,
     limit: Option<i64>,

@@ -9,16 +9,18 @@
 </script>
 
 <aside data-testid="member-list" class="member-list">
-	<header class="member-list-header">
-		Members <span class="count">{members.length}</span>
-	</header>
-	<ul>
-		{#each members as m (m.id)}
-			<li data-testid="member-item" class="member-item" class:is-self={m.isSelf}>
-				{m.username}{m.isSelf ? ' (you)' : ''}
-			</li>
-		{/each}
-	</ul>
+	<div class="center-col">
+		<header class="member-list-header">
+			Members <span class="count">{members.length}</span>
+		</header>
+		<ul>
+			{#each members as m (m.id)}
+				<li data-testid="member-item" class="member-item" class:is-self={m.isSelf}>
+					{m.username}{m.isSelf ? ' (you)' : ''}
+				</li>
+			{/each}
+		</ul>
+	</div>
 </aside>
 
 <style>

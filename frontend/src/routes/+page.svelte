@@ -2,7 +2,15 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getToken } from '$lib/auth';
-	import { getRooms, createRoom, getMessages, getProfile, updateProfile } from '$lib/api';
+	import {
+		getRooms,
+		createRoom,
+		renameRoom,
+		deleteRoom,
+		getMessages,
+		getProfile,
+		updateProfile
+	} from '$lib/api';
 	import { setToken, clearToken } from '$lib/auth';
 	import { WebSocketClient } from '$lib/ws';
 	import { WebRTCManager } from '$lib/webrtc';
@@ -162,7 +170,20 @@
 			if (msg.user_id === ownUserId) {
 				localScreenStream = null;
 			}
+		} else if (msg.type === 'room_deleted') {
+			if (msg.room_id === selectedRoomId) clearSelectedRoom();
+			loadRooms();
 		}
+	}
+
+	function clearSelectedRoom() {
+		if (inCall) leaveCall();
+		if (currentRoomId) ws?.leaveRoom(currentRoomId);
+		currentRoomId = null;
+		selectedRoomId = null;
+		messages = [];
+		roomUsers = new Map();
+		activeScreenSharerId = null;
 	}
 
 	async function loadRooms() {
@@ -202,6 +223,25 @@
 		showCreateForm = false;
 		await loadRooms();
 		return true;
+	}
+
+	async function handleRenameRoom(name: string): Promise<boolean> {
+		if (!token || !selectedRoomId) return false;
+		const renamed = await apiCall(() => renameRoom(token!, selectedRoomId!, name));
+		if (!renamed) return false;
+		await loadRooms();
+		return true;
+	}
+
+	async function handleDeleteRoom() {
+		if (!token || !selectedRoomId) return;
+		const roomId = selectedRoomId;
+		const result = await apiCall(() => deleteRoom(token!, roomId), {
+			errorMessage: 'Could not delete room'
+		});
+		if (result === null) return;
+		clearSelectedRoom();
+		await loadRooms();
 	}
 
 	function handleSendMessage(text: string) {
@@ -372,7 +412,11 @@
 		{#if selectedRoomId}
 			<div data-testid="chat-area" class="chat-area">
 				{#if selectedRoom}
-					<RoomHeader roomName={selectedRoom.name} />
+					<RoomHeader
+						roomName={selectedRoom.name}
+						onRename={handleRenameRoom}
+						onDelete={handleDeleteRoom}
+					/>
 				{/if}
 				<MemberList {members} />
 				<CallControls

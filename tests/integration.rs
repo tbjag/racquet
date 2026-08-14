@@ -217,6 +217,34 @@ async fn test_update_profile() {
 }
 
 #[tokio::test]
+async fn test_custom_username_survives_relogin() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/profile"))
+        .bearer_auth(&token)
+        .json(&json!({ "username": "Ali" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let new_token = login_user(&base, "alice@test.com").await;
+
+    let resp = reqwest::Client::new()
+        .get(format!("{base}/api/profile"))
+        .bearer_auth(&new_token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["username"], "Ali");
+}
+
+#[tokio::test]
 async fn test_update_profile_empty_name() {
     let base = spawn_app().await;
     let token = login_user(&base, "alice@test.com").await;
@@ -352,6 +380,236 @@ async fn test_list_rooms_empty() {
     let body: Value = resp.json().await.unwrap();
     let rooms = body.as_array().expect("response should be an array");
     assert!(rooms.is_empty());
+}
+
+#[tokio::test]
+async fn test_rename_room() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/rooms/{room_id}"))
+        .bearer_auth(&token)
+        .json(&json!({ "name": "renamed" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["name"], "renamed");
+    assert_eq!(body["id"], room_id);
+
+    let resp = reqwest::Client::new()
+        .get(format!("{base}/api/rooms"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+
+    let body: Value = resp.json().await.unwrap();
+    let rooms = body.as_array().unwrap();
+    assert_eq!(rooms.len(), 1);
+    assert_eq!(rooms[0]["name"], "renamed");
+}
+
+#[tokio::test]
+async fn test_rename_room_duplicate() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    create_room(&base, &token, "general").await;
+    let room = create_room(&base, &token, "gaming").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/rooms/{room_id}"))
+        .bearer_auth(&token)
+        .json(&json!({ "name": "general" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_rename_room_same_name_allowed() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/rooms/{room_id}"))
+        .bearer_auth(&token)
+        .json(&json!({ "name": "general" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_rename_room_empty_name() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/rooms/{room_id}"))
+        .bearer_auth(&token)
+        .json(&json!({ "name": "   " }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_rename_room_not_found() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+
+    let resp = reqwest::Client::new()
+        .put(format!("{base}/api/rooms/nope"))
+        .bearer_auth(&token)
+        .json(&json!({ "name": "whatever" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_room() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let resp = reqwest::Client::new()
+        .delete(format!("{base}/api/rooms/{room_id}"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let resp = reqwest::Client::new()
+        .get(format!("{base}/api/rooms"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+
+    let body: Value = resp.json().await.unwrap();
+    assert!(body.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_delete_room_not_found() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+
+    let resp = reqwest::Client::new()
+        .delete(format!("{base}/api/rooms/nope"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_room_no_auth() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let resp = reqwest::Client::new()
+        .delete(format!("{base}/api/rooms/{room_id}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_delete_room_with_messages() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws, _) = connect_async(format!("{ws_url}/ws?token={token}"))
+        .await
+        .unwrap();
+
+    ws.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
+        .await
+        .unwrap();
+    drain_ws(&mut ws).await;
+
+    ws.send(text_msg(json!({
+        "type": "send_message",
+        "room_id": room_id,
+        "content": "hello"
+    })))
+    .await
+    .unwrap();
+
+    let parsed = recv_json(&mut ws).await;
+    assert_eq!(parsed["type"], "new_message");
+
+    let resp = reqwest::Client::new()
+        .delete(format!("{base}/api/rooms/{room_id}"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn test_delete_room_broadcasts_room_deleted() {
+    let base = spawn_app().await;
+    let token = login_user(&base, "alice@test.com").await;
+    let room = create_room(&base, &token, "general").await;
+    let room_id = room["id"].as_str().unwrap();
+
+    let ws_url = base.replace("http://", "ws://");
+    let (mut ws, _) = connect_async(format!("{ws_url}/ws?token={token}"))
+        .await
+        .unwrap();
+
+    ws.send(text_msg(json!({ "type": "join_room", "room_id": room_id })))
+        .await
+        .unwrap();
+    drain_ws(&mut ws).await;
+
+    let resp = reqwest::Client::new()
+        .delete(format!("{base}/api/rooms/{room_id}"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let parsed = recv_json(&mut ws).await;
+    assert_eq!(parsed["type"], "room_deleted");
+    assert_eq!(parsed["room_id"], room_id);
 }
 
 // ============================================================

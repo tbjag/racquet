@@ -58,6 +58,37 @@ export async function createRoom(
 	return res.json();
 }
 
+export async function renameRoom(
+	token: string,
+	roomId: string,
+	name: string
+): Promise<{ id: string; name: string; created_by: string; created_at: string }> {
+	const res = await fetch(`${API_BASE}/api/rooms/${roomId}`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ name })
+	});
+	if (!res.ok) {
+		const body = await res.json().catch(() => ({ error: 'Failed to rename room' }));
+		throw new Error(body.error || 'Failed to rename room');
+	}
+	return res.json();
+}
+
+export async function deleteRoom(token: string, roomId: string): Promise<void> {
+	const res = await fetch(`${API_BASE}/api/rooms/${roomId}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const body = await res.json().catch(() => ({ error: 'Failed to delete room' }));
+		throw new Error(body.error || 'Failed to delete room');
+	}
+}
+
 export async function getMessages(
 	token: string,
 	roomId: string,

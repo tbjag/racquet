@@ -28,13 +28,15 @@
 </script>
 
 <form onsubmit={handleSubmit} class="message-form">
-	<input
-		data-testid="message-input"
-		type="text"
-		placeholder="Type a message..."
-		bind:value
-		onkeydown={handleKeyDown}
-	/>
+	<div class="center-col">
+		<input
+			data-testid="message-input"
+			type="text"
+			placeholder="Type a message..."
+			bind:value
+			onkeydown={handleKeyDown}
+		/>
+	</div>
 </form>
 
 <style>
@@ -51,7 +53,14 @@
 		color: var(--text);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-md);
+		box-shadow: var(--shadow-card);
 		font-size: 0.95rem;
+	}
+
+	/* The offset shadow above outranks the global :focus-visible ring, so restore it here. */
+	.message-form input:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
 	}
 
 	.message-form input::placeholder {
